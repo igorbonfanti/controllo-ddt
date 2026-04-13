@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Riconciliazione POS / DDT - Il Magazzino Edile</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- SheetJS (per lettura Excel) -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    
+    <!-- Stili Custom -->
+    <link rel="stylesheet" href="style.css?v=v3">
+</head>
+<body class="dark-theme">
+    
+    <div class="app-container">
+        
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar glass-panel">
+            <div class="logo">
+                <i class="fa-solid fa-layer-group"></i>
+                <h2>Riconcilia</h2>
+            </div>
+            
+            <ul class="nav-links">
+                <li class="active" data-tab="tab-upload">
+                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                    <span>Caricamento Dati</span>
+                </li>
+                <li class="disabled" data-tab="tab-riconciliazioni" id="nav-riconciliazioni">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <span>Anomalie (<span id="count-anomalie">0</span>)</span>
+                </li>
+                <li class="disabled" data-tab="tab-corrispettivi" id="nav-corrispettivi">
+                    <i class="fa-solid fa-cash-register"></i>
+                    <span>Corrispettivi RT</span>
+                </li>
+                <li class="disabled" data-tab="tab-all-ddt" id="nav-all-ddt">
+                    <i class="fa-solid fa-file-lines"></i>
+                    <span>Tutti i DDT</span>
+                </li>
+                <li class="disabled" data-tab="tab-all-pos" id="nav-all-pos">
+                    <i class="fa-solid fa-receipt"></i>
+                    <span>Tutte le Transazioni</span>
+                </li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            
+            <!-- Header -->
+            <header class="top-bar">
+                <div class="status-indicator" id="status-indicator">
+                    <div class="dot blinking"></div> In attesa di dati
+                </div>
+            </header>
+
+            <!-- TAB 1: Upload -->
+            <section id="tab-upload" class="tab-content active">
+                <div class="page-title">
+                    <h1>Sincronizzazione Dati</h1>
+                    <p>Trascina i file estratti dal gestionale e dal portale Nexi per continuare.</p>
+                </div>
+                
+                <div class="upload-grid">
+                    <!-- Dropzone DDT -->
+                    <div class="dropzone glass-panel" id="dropzone-ddt">
+                        <input type="file" id="file-ddt" accept=".xls,.xlsx" hidden>
+                        <i class="fa-solid fa-file-excel icon-large"></i>
+                        <h3>File DDT (Settimanale)</h3>
+                        <p>Formato supportato: .xls (Zucchetti), .xlsx</p>
+                        <button class="btn btn-outline" onclick="document.getElementById('file-ddt').click()">Seleziona File</button>
+                        <div class="file-status" id="status-ddt"></div>
+                    </div>
+
+                    <!-- Dropzone POS Nexi -->
+                    <div class="dropzone glass-panel" id="dropzone-pos">
+                        <input type="file" id="file-pos" accept=".xlsx,.csv" hidden multiple>
+                        <i class="fa-solid fa-credit-card icon-large text-nexi"></i>
+                        <h3>Transazioni POS Nexi</h3>
+                        <p>Formato supportato: .xlsx (Nexi export)</p>
+                        <button class="btn btn-outline" onclick="document.getElementById('file-pos').click()">Seleziona File</button>
+                        <div class="file-status" id="status-pos"></div>
+                    </div>
+                </div>
+
+                <div class="actions-row center mt-4">
+                    <button class="btn btn-primary btn-large disabled" id="btn-elabora">
+                        <i class="fa-solid fa-cogs"></i> Avvia Elaborazione Dati
+                    </button>
+                </div>
+            </section>
+
+            <!-- TAB 2: Riconciliazioni -->
+            <section id="tab-riconciliazioni" class="tab-content">
+                <div class="page-title flex-between">
+                    <div>
+                        <h1>DDT da Correggere in Contabilità</h1>
+                        <p>DDT registrati con pagamento non corretto (es. Cassa, Rimessa) ma pagati con POS.</p>
+                    </div>
+                    <div class="actions">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="toggle-corretti">
+                            <span class="slider round"></span>
+                            <span class="label-text">Mostra già corretti</span>
+                        </label>
+                        <button class="btn btn-secondary" onclick="window.print()">
+                            <i class="fa-solid fa-print"></i> Stampa Report
+                        </button>
+                    </div>
+                </div>
+
+                <div class="tables-container">
+                    <!-- Ferraris -->
+                    <div class="sede-section glass-panel">
+                        <h2><i class="fa-solid fa-location-dot"></i> Sede: Ferraris</h2>
+                        <div class="table-wrapper">
+                            <table class="modern-table" id="table-ferraris">
+                                <thead>
+                                    <tr>
+                                        <th>Data</th>
+                                        <th>N° DDT</th>
+                                        <th>Cliente</th>
+                                        <th>Importo (€)</th>
+                                        <th>Da correggere in</th>
+                                        <th>Transazione POS</th>
+                                        <th>Azione</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Popolato da JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Spezia -->
+                    <div class="sede-section glass-panel mt-4">
+                        <h2><i class="fa-solid fa-location-dot"></i> Sede: Spezia</h2>
+                        <div class="table-wrapper">
+                            <table class="modern-table" id="table-spezia">
+                                <thead>
+                                    <tr>
+                                        <th>Data</th>
+                                        <th>N° DDT</th>
+                                        <th>Cliente</th>
+                                        <th>Importo (€)</th>
+                                        <th>Da correggere in</th>
+                                        <th>Transazione POS</th>
+                                        <th>Azione</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Popolato da JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: Corrispettivi -->
+            <section id="tab-corrispettivi" class="tab-content">
+                <div class="page-title">
+                    <h1>Residuo Corrispettivi Giornalieri</h1>
+                    <p>Incrocio tra POS totali e DDT B2B. Inserisci i dati della chiusura RT per validare la giornata.</p>
+                </div>
+                
+                <div class="glass-panel p-0">
+                    <div class="table-wrapper">
+                        <table class="modern-table input-table" id="table-corrispettivi">
+                            <thead>
+                                <tr>
+                                    <th>Data</th>
+                                    <th>Sede</th>
+                                    <th>POS Cassa Tot.</th>
+                                    <th>Abbinati B2B</th>
+                                    <th>Residuo POS</th>
+                                    <th>RT Elettronico</th>
+                                    <th>Delta</th>
+                                    <th>RT Contanti</th>
+                                    <th>Note</th>
+                                    <th>Salva</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Popolato da JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: Tutti i DDT -->
+            <section id="tab-all-ddt" class="tab-content">
+                <div class="page-title">
+                    <h1>Riepilogo Tutti i DDT Caricati</h1>
+                    <p>Visualizzazione di tutti i DDT analizzati dal file Zucchetti per le due sedi (F, Z).</p>
+                </div>
+                
+                <div class="glass-panel p-0">
+                    <div class="table-wrapper">
+                        <table class="modern-table" id="table-all-ddt">
+                            <thead>
+                                <tr>
+                                    <th>Sede</th>
+                                    <th>Data</th>
+                                    <th>N° DDT</th>
+                                    <th>Cliente</th>
+                                    <th>Importo IVA Inc.</th>
+                                    <th>Pagamento Zucchetti</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Popolato da JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 5: Tutti i POS -->
+            <section id="tab-all-pos" class="tab-content">
+                <div class="page-title">
+                    <h1>Riepilogo Transazioni POS Nexi</h1>
+                    <p>Tutte le transazioni POS estratte (escluse le "Rifiutate").</p>
+                </div>
+                
+                <div class="glass-panel p-0">
+                    <div class="table-wrapper">
+                        <table class="modern-table" id="table-all-pos">
+                            <thead>
+                                <tr>
+                                    <th>Sede/Tipo</th>
+                                    <th>Data e Orario</th>
+                                    <th>Autorizzazione</th>
+                                    <th>Importo</th>
+                                    <th>Circuito</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Popolato da JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Script Application -->
+    <script src="js/store.js"></script>
+    <script src="js/engine_riconciliazione.js"></script>
+    <script src="js/parser_ddt.js"></script>
+    <script src="js/parser_pos.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
