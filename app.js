@@ -1,3 +1,122 @@
+// --- Export Excel ---
+
+function esportaExcel() {
+    if (!state.risultati) return;
+
+    const { anomalie, aggregatiGiornalieri } = state.risultati;
+    const correttiIDs = Store.getCorretti();
+    const db = Store.getCorrispettivi();
+    const wb = XLSX.utils.book_new();
+    const oggi = new Date().toLocaleDateString('it-IT');
+
+    // ---- Foglio 1: Riepilogo ----
+    const anomF = anomalie.filter(a => a.ddt.Sede === 'F');
+    const anomZ = anomalie.filter(a => a.ddt.Sede === 'Z');
+    const totF = anomF.reduce((s, a) => s + a.ddt.ImportoConIVA, 0);
+    const totZ = anomZ.reduce((s, a) => s + a.ddt.ImportoConIVA, 0);
+
+    const riepilogo = [
+        ['RICONCILIAZIONE POS / DDT — Il Magazzino Edile S.r.l.'],
+        ['Generato il:', oggi],
+        [],
+        ['DDT DA CORREGGERE'],
+        ['Sede', 'N° DDT', 'Importo totale (€)'],
+        ['Ferraris', anomF.length, totF],
+        ['Spezia',   anomZ.length, totZ],
+        ['TOTALE',   anomF.length + anomZ.length, totF + totZ],
+        [],
+        ['ANOMALIE CORRISPETTIVI'],
+        ['Data', 'Sede', 'Residuo POS (€)', 'Dichiarato RT el. (€)', 'Delta (€)', 'Stato'],
+    ];
+
+    aggregatiGiornalieri.forEach(gg => {
+        const rec = db[`${gg.data}_${gg.sedeChr}`] || {};
+        const rtEl = rec.tot_elettronico !== undefined && rec.tot_elettronico !== '' ? rec.tot_elettronico : null;
+        let delta = '', stato;
+        if (rtEl === null) {
+            stato = '⚠ mancante';
+        } else {
+            delta = +(gg.residuo - rtEl).toFixed(2);
+            stato = Math.abs(delta) <= 0.02 ? '✓ ok' : `⚠ Δ +${delta}€`;
+        }
+        riepilogo.push([formatDate(gg.data), gg.sede, gg.residuo, rtEl ?? '', delta, stato]);
+    });
+
+    const ws1 = XLSX.utils.aoa_to_sheet(riepilogo);
+    ws1['!cols'] = [{ wch: 14 }, { wch: 12 }, { wch: 20 }, { wch: 22 }, { wch: 12 }, { wch: 18 }];
+    XLSX.utils.book_append_sheet(wb, ws1, 'Riepilogo');
+
+    // ---- Fogli 2 & 3: DDT per sede ----
+    const hDDT = [
+        'N° DDT', 'Sede', 'Data DDT', 'Cliente', 'Importo (€)',
+        'Pagamento attuale', 'Correggere in',
+        'POS Data', 'POS Ora', 'POS N° Auth', 'POS Circuito', 'Corretto'
+    ];
+
+    [['F', 'Ferraris'], ['Z', 'Spezia']].forEach(([sedeChr, nomeS]) => {
+        const rows = anomalie
+            .filter(a => a.ddt.Sede === sedeChr)
+            .sort((a, b) => a.ddt.DataParsed.localeCompare(b.ddt.DataParsed))
+            .map(a => [
+                a.ddt.NrDoc,
+                nomeS,
+                formatDate(a.ddt.DataParsed),
+                a.ddt.Cliente,
+                a.ddt.ImportoConIVA,
+                a.ddt.Pagamento,
+                'POS',
+                a.pos.DataParsed ? formatDate(a.pos.DataParsed) : '',
+                a.pos.Ora || '',
+                a.pos.Autorizzazione || '',
+                a.pos.Circuito || '',
+                correttiIDs.includes(a.anomaliaId) ? '✓' : ''
+            ]);
+
+        const ws = XLSX.utils.aoa_to_sheet([hDDT, ...rows]);
+        ws['!cols'] = [
+            { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 32 }, { wch: 12 },
+            { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 12 }, { wch: 8 }
+        ];
+        XLSX.utils.book_append_sheet(wb, ws, `${nomeS} - DDT`);
+    });
+
+    // ---- Foglio 4: Corrispettivi & POS residuo ----
+    const hCorr = [
+        'Data', 'Sede', 'POS-cassa tot. (€)', 'DDT abbinati (€)',
+        'Residuo POS (€)', 'Dichiarato RT el. (€)', 'Delta (€)',
+        'Stato', 'Contanti RT (€)', 'Note'
+    ];
+
+    const rowsCorr = aggregatiGiornalieri.map(gg => {
+        const rec = db[`${gg.data}_${gg.sedeChr}`] || {};
+        const rtEl   = rec.tot_elettronico !== undefined && rec.tot_elettronico !== '' ? rec.tot_elettronico : '';
+        const rtCont = rec.tot_contanti   !== undefined && rec.tot_contanti   !== '' ? rec.tot_contanti   : '';
+        let delta = '', stato;
+        if (rtEl === '') {
+            stato = '⚠ mancante';
+        } else {
+            delta = +(gg.residuo - rtEl).toFixed(2);
+            stato = Math.abs(delta) <= 0.02 ? '✓ ok' : `⚠ Δ +${delta}€`;
+        }
+        return [
+            formatDate(gg.data), gg.sede,
+            gg.posTotale, gg.b2bAbbinati, gg.residuo,
+            rtEl, delta, stato, rtCont, rec.note || ''
+        ];
+    });
+
+    const ws4 = XLSX.utils.aoa_to_sheet([hCorr, ...rowsCorr]);
+    ws4['!cols'] = [
+        { wch: 12 }, { wch: 10 }, { wch: 18 }, { wch: 16 }, { wch: 14 },
+        { wch: 20 }, { wch: 10 }, { wch: 18 }, { wch: 14 }, { wch: 30 }
+    ];
+    XLSX.utils.book_append_sheet(wb, ws4, 'Corrispettivi');
+
+    // Scarica
+    const dataFile = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `Riconciliazione_${dataFile}.xlsx`);
+}
+
 // Stato globale dell'app
 const state = {
     ddtList: [],
