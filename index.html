@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Riconciliazione POS / DDT v1.1.0 - Il Magazzino Edile</title>
+    <title>Il Magazzino Edile — Riconciliazione</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -17,39 +17,50 @@
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     
     <!-- Stili Custom -->
-    <link rel="stylesheet" href="style.css?v=v3">
+    <link rel="stylesheet" href="tema.css?v=2">
+    <link rel="stylesheet" href="base.css?v=2">
+    <link rel="stylesheet" href="style.css?v=v4">
+    <!-- Prima del corpo, altrimenti la pagina lampeggia col tema sbagliato. -->
+    <script src="tema.js?v=2"></script>
 </head>
 <body class="dark-theme">
     
     <div class="app-container">
         
-        <!-- Sidebar Navigation -->
-        <nav class="sidebar glass-panel">
-            <div class="logo">
-                <i class="fa-solid fa-layer-group"></i>
-                <h2>Riconcilia <span style="font-size: 12px; color: var(--text3); font-weight: normal; margin-left: 4px;">v1.1.0</span></h2>
+        <!-- Testata e menu: gli stessi delle altre app del magazzino -->
+        <header class="ag-header">
+            <div class="ag-logo">ME</div>
+            <div class="ag-titolo">
+                <h1>Il Magazzino Edile</h1>
+                <span class="ag-modulo">Riconciliazione<span class="ag-versione">v1.2.0</span></span>
             </div>
-            
+            <div class="ag-azioni">
+                <button id="btnTema" class="btn btn-icona" title="Cambia tema">&#127769;</button>
+            </div>
+        </header>
+
+        <nav class="ag-nav">
             <ul class="nav-links">
-                <li class="active" data-tab="tab-upload">
+                <li class="ag-nav-voce attiva" data-tab="tab-upload">
                     <i class="fa-solid fa-cloud-arrow-up"></i>
-                    <span>Caricamento Dati</span>
+                    <span>Caricamento dati</span>
                 </li>
-                <li class="disabled" data-tab="tab-riconciliazioni" id="nav-riconciliazioni">
+                <li class="ag-nav-voce disattiva" data-tab="tab-riconciliazioni" id="nav-riconciliazioni">
                     <i class="fa-solid fa-triangle-exclamation"></i>
-                    <span>Anomalie (<span id="count-anomalie">0</span>)</span>
+                    <span>Anomalie</span>
+                    <span class="ag-nav-conta" id="count-anomalie">0</span>
                 </li>
-                <li class="disabled" data-tab="tab-corrispettivi" id="nav-corrispettivi">
+                <li class="ag-nav-voce disattiva" data-tab="tab-corrispettivi" id="nav-corrispettivi">
                     <i class="fa-solid fa-cash-register"></i>
                     <span>Corrispettivi RT</span>
                 </li>
-                <li class="disabled" data-tab="tab-all-ddt" id="nav-all-ddt">
+                <li class="ag-nav-voce disattiva" data-tab="tab-all-ddt" id="nav-all-ddt">
                     <i class="fa-solid fa-file-lines"></i>
                     <span>Tutti i DDT</span>
                 </li>
-                <li class="disabled" data-tab="tab-all-pos" id="nav-all-pos">
+                <li class="ag-nav-voce disattiva" data-tab="tab-all-pos" id="nav-all-pos">
                     <i class="fa-solid fa-receipt"></i>
-                    <span>Tutte le Transazioni</span>
+                    <span>Tutte le transazioni</span>
                 </li>
             </ul>
         </nav>
@@ -267,5 +278,9 @@
     <script src="js/parser_ddt.js"></script>
     <script src="js/parser_pos.js"></script>
     <script src="app.js"></script>
+<script>
+  // L'interruttore chiaro/scuro: tema.js si occupa di icona, memoria e attributo.
+  if (window.Tema) Tema.collega(document.getElementById('btnTema'));
+</script>
 </body>
 </html>

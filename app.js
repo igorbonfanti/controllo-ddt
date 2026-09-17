@@ -134,7 +134,7 @@ const formatDate = (isoStr) => {
 
 // DOM Elements
 const ui = {
-    tabs: document.querySelectorAll('.nav-links li'),
+    tabs: document.querySelectorAll('.ag-nav .ag-nav-voce'),
     sections: document.querySelectorAll('.tab-content'),
     dropDdt: document.getElementById('dropzone-ddt'),
     dropPos: document.getElementById('dropzone-pos'),
@@ -159,12 +159,12 @@ const ui = {
 // --- Gestione Tabs ---
 ui.tabs.forEach(tab => {
     tab.addEventListener('click', () => {
-        if (tab.classList.contains('disabled')) return;
-        
-        ui.tabs.forEach(t => t.classList.remove('active'));
+        if (tab.classList.contains('disattiva')) return;
+
+        ui.tabs.forEach(t => t.classList.remove('attiva'));
         ui.sections.forEach(s => s.classList.remove('active'));
-        
-        tab.classList.add('active');
+
+        tab.classList.add('attiva');
         document.getElementById(tab.dataset.tab).classList.add('active');
     });
 });
@@ -237,10 +237,10 @@ ui.btnElabora.addEventListener('click', () => {
     state.risultati = eseguiRiconciliazione(state.ddtList, state.posList);
     
     // Attiva le altre tab
-    document.getElementById('nav-riconciliazioni').classList.remove('disabled');
-    document.getElementById('nav-corrispettivi').classList.remove('disabled');
-    document.getElementById('nav-all-ddt').classList.remove('disabled');
-    document.getElementById('nav-all-pos').classList.remove('disabled');
+    document.getElementById('nav-riconciliazioni').classList.remove('disattiva');
+    document.getElementById('nav-corrispettivi').classList.remove('disattiva');
+    document.getElementById('nav-all-ddt').classList.remove('disattiva');
+    document.getElementById('nav-all-pos').classList.remove('disattiva');
     
     // Salta alla tab Riconciliazioni
     document.getElementById('nav-riconciliazioni').click();
