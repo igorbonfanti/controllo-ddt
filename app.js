@@ -471,6 +471,82 @@ function renderCorrispettivi() {
 }
 
 // --- Export Excel ---
+// --- Report correzioni: un foglio da mandare a contabilita' e commerciale ---
+// Contiene i DDT da correggere in POS e in BB non ancora segnati "Sistemato"
+// (tutti, se l'interruttore "Mostra già sistemati" e' acceso).
+function esportaReportCorrezioni() {
+    if (!state.risultati) return;
+    const { righe } = state.risultati;
+    const corretti = new Set(Store.getCorretti());
+    const includiSistemati = ui.toggleCorretti.checked;
+    const FMT_EURO = '#,##0.00 "€"';
+
+    const date = state.ddtList.map(d => d.DataParsed).sort();
+    const periodo = `${formatDate(date[0])} – ${formatDate(date[date.length - 1])}`;
+    const ordina = (a, b) => a.ddt.Sede.localeCompare(b.ddt.Sede) || a.ddt.DataParsed.localeCompare(b.ddt.DataParsed)
+        || a.ddt.NrDoc.localeCompare(b.ddt.NrDoc, undefined, { numeric: true });
+    const scegli = verso => righe
+        .filter(r => r.verdetto === 'correggere' && r.correggiIn === verso)
+        .filter(r => includiSistemati || !corretti.has(r.anomaliaId))
+        .sort(ordina);
+    const sezioni = [
+        { verso: 'POS', titolo: 'DA CORREGGERE IN POS — pagati con carta di credito o bancomat', righe: scegli('POS') },
+        { verso: 'BB', titolo: 'DA CORREGGERE IN BB — pagati con bonifico', righe: scegli('BB') }
+    ];
+    const totale = l => Math.round(l.reduce((s, r) => s + r.ddt.ImportoConIVA, 0) * 100) / 100;
+
+    const pagamento = r => {
+        const e = r.esito;
+        const insieme = e.gruppo ? ` · pagato insieme ai DDT ${e.gruppo.filter(n => n !== r.ddt.NrDoc).join(', ')}` : '';
+        if (e.canale === 'POS') {
+            const p = e.pos;
+            return [formatDate(p.DataParsed),
+                `POS ${nomeSede(p.sede_tml)} ore ${p.Ora.slice(0, 5)} · ${p.Circuito}${p.Carta ? ' *' + p.Carta : ''} · aut. ${p.Autorizzazione} · ${formatEuro(p.Importo)}${insieme}`];
+        }
+        const b = e.bon;
+        return [formatDate(b.DataParsed), `Bonifico ${formatEuro(b.Importo)} da: ${b.Ordinante}${e.nota ? ' (' + e.nota + ')' : ''}${insieme}`];
+    };
+
+    const intest = ['Sede', 'N° DDT', 'Data DDT', 'Cliente', 'Importo', 'Registrato', 'Correggere in', 'Data pagamento', 'Pagamento trovato', 'Affidabilità', 'Corretto (sigla e data)'];
+    const aoa = [
+        ['DDT DA CORREGGERE IN CONTABILITÀ — Il Magazzino Edile S.r.l.'],
+        [`Periodo DDT: ${periodo} · generato il ${new Date().toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })}`],
+        [`Da correggere in POS: ${sezioni[0].righe.length} DDT, ${formatEuro(totale(sezioni[0].righe))} · Da correggere in BB: ${sezioni[1].righe.length} DDT, ${formatEuro(totale(sezioni[1].righe))}`
+            + (includiSistemati ? ' · compresi quelli già segnati come sistemati' : '')],
+        []
+    ];
+    const righeImporto = [];   // indici di riga con importi da formattare in euro
+    const righeTitolo = [];
+
+    for (const s of sezioni) {
+        righeTitolo.push(aoa.length);
+        aoa.push([s.titolo]);
+        aoa.push(intest);
+        if (!s.righe.length) aoa.push(['', '', '', 'Nessun DDT da correggere']);
+        for (const r of s.righe) {
+            righeImporto.push(aoa.length);
+            aoa.push([nomeSede(r.ddt.Sede), r.ddt.NrDoc, formatDate(r.ddt.DataParsed), r.ddt.Cliente, r.ddt.ImportoConIVA,
+                r.ddt.Pagamento, s.verso, ...pagamento(r), r.esito.conf, corretti.has(r.anomaliaId) ? 'già sistemato' : '']);
+        }
+        righeImporto.push(aoa.length);
+        aoa.push(['', '', '', `Totale (${s.righe.length} DDT)`, totale(s.righe)]);
+        aoa.push([]);
+    }
+    aoa.push(['Affidabilità: "alta" = stesso importo e stesso giorno, oppure bonifico che cita il DDT o la fattura; "media" = da controllare (giorno diverso, altra sede o bonifico cumulativo); "bassa" = solo indicazione, verificare prima di correggere.']);
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    for (const i of righeImporto) {
+        const cella = ws[XLSX.utils.encode_cell({ r: i, c: 4 })];
+        if (cella && typeof cella.v === 'number') cella.z = FMT_EURO;
+    }
+    ws['!cols'] = [{ wch: 10 }, { wch: 8 }, { wch: 11 }, { wch: 42 }, { wch: 12 }, { wch: 11 }, { wch: 13 }, { wch: 14 }, { wch: 70 }, { wch: 11 }, { wch: 22 }];
+    ws['!merges'] = [0, 1, 2, ...righeTitolo, aoa.length - 1].map(r => ({ s: { r, c: 0 }, e: { r, c: 10 } }));
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Da correggere');
+    XLSX.writeFile(wb, `DDT_da_correggere_${date[0]}_${date[date.length - 1]}.xlsx`);
+}
+
 function esportaExcel() {
     if (!state.risultati) return;
     const { righe, bonifici, quadraturaNexi, aggregatiGiornalieri, periodo } = state.risultati;

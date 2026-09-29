@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="base.css?v=2">
     <link rel="stylesheet" href="style.css?v=v10">
     <!-- Prima del corpo, altrimenti la pagina lampeggia col tema sbagliato. -->
-    <script src="tema.js?v=7"></script>
+    <script src="tema.js?v=8"></script>
 </head>
 <body class="dark-theme">
     
@@ -32,7 +32,7 @@
             <div class="ag-logo">ME</div>
             <div class="ag-titolo">
                 <h1>Il Magazzino Edile</h1>
-                <span class="ag-modulo">Riconciliazione<span class="ag-versione">v2.1.0</span></span>
+                <span class="ag-modulo">Riconciliazione<span class="ag-versione">v2.2.0</span></span>
             </div>
             <div class="ag-azioni">
                 <button id="btnTema" class="btn btn-icona" title="Cambia tema">&#127769;</button>
@@ -141,8 +141,11 @@
                         <button class="btn btn-secondary" onclick="window.print()">
                             <i class="fa-solid fa-print"></i> Stampa
                         </button>
-                        <button class="btn btn-primary" onclick="esportaExcel()">
-                            <i class="fa-solid fa-file-excel"></i> Esporta Excel
+                        <button class="btn btn-secondary" onclick="esportaExcel()" title="Tutti i fogli: riepilogo, DDT, bonifici, quadratura, corrispettivi">
+                            <i class="fa-solid fa-file-excel"></i> Export completo
+                        </button>
+                        <button class="btn btn-primary" onclick="esportaReportCorrezioni()" title="Un foglio con i DDT da correggere in POS e in BB, da mandare a contabilità e commerciale">
+                            <i class="fa-solid fa-envelope"></i> Report correzioni
                         </button>
                     </div>
                 </div>
@@ -335,13 +338,13 @@
     </div>
 
     <!-- Script Application -->
-    <script src="js/util.js?v=7"></script>
-    <script src="js/store.js?v=7"></script>
-    <script src="js/engine_riconciliazione.js?v=7"></script>
-    <script src="js/parser_ddt.js?v=7"></script>
-    <script src="js/parser_pos.js?v=7"></script>
-    <script src="js/parser_bpm.js?v=7"></script>
-    <script src="app.js?v=7"></script>
+    <script src="js/util.js?v=8"></script>
+    <script src="js/store.js?v=8"></script>
+    <script src="js/engine_riconciliazione.js?v=8"></script>
+    <script src="js/parser_ddt.js?v=8"></script>
+    <script src="js/parser_pos.js?v=8"></script>
+    <script src="js/parser_bpm.js?v=8"></script>
+    <script src="app.js?v=8"></script>
 <script>
   // L'interruttore chiaro/scuro: tema.js si occupa di icona, memoria e attributo.
   if (window.Tema) Tema.collega(document.getElementById('btnTema'));
