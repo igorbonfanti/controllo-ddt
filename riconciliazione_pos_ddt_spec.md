@@ -114,7 +114,9 @@ Ogni sede dispone di tre terminali Nexi con ruoli distinti:
 
 Il matching abbina ogni DDT a una transazione POS sulla base di **data esatta + importo IVA inclusa, al centesimo**.
 
-**Importo del DDT stampato (v2.3):** la colonna `Importo con IVA` dell'export Zucchetti somma le righe già arrotondate una per una. Il DDT stampato invece calcola l'IVA sul totale: `imponibile × 1,22` arrotondato. I due valori differiscono di 1-2 centesimi in circa 1 DDT su 5, e il cliente paga la cifra stampata. L'app confronta POS e bonifici con entrambi i valori, al centesimo. Se lo scarto supera 0,05 € (IVA non tutta al 22%) si usa solo il valore dell'export. Sui dati di settembre 2026 tutti i 287 abbinamenti POS risultano esatti al centesimo. Resta una tolleranza di ±0,02 € solo per il POS dello stesso giorno e della stessa sede; in tutti gli altri casi (altro giorno, altra sede, pagamento anticipato) il POS deve essere esatto.
+**Importo del DDT stampato (v2.3):** la colonna `Importo con IVA` dell'export Zucchetti somma le righe già arrotondate una per una. Il DDT stampato invece calcola l'IVA sul totale: `imponibile × 1,22` arrotondato. I due valori differiscono di 1-2 centesimi in circa 1 DDT su 5, e il cliente paga la cifra stampata. L'app confronta POS e bonifici con entrambi i valori, al centesimo. Se lo scarto supera 0,05 € (IVA non tutta al 22%) si usa solo il valore dell'export. Sui dati di settembre 2026 tutti i 287 abbinamenti POS risultano esatti al centesimo. Resta una tolleranza di ±0,02 € solo per il POS dello stesso giorno e della stessa sede; in tutti gli altri casi (altro giorno, altra sede) il POS deve essere esatto.
+
+**Mai POS prima del DDT (v2.4):** al banco si fa prima il DDT e poi il cliente paga. Un POS con data precedente al DDT non viene mai abbinato, nemmeno come indizio.
 
 **Algoritmo:**
 ```
@@ -158,11 +160,10 @@ Da v2.0 l'app (statica, `js/engine_riconciliazione.js`) verifica ogni DDT in ent
 | 2 | POS stesso giorno, stessa sede, stesso importo | alta |
 | 3 | Ordinante = cliente e stesso importo, bonifico da 7 gg prima a 90 gg dopo il DDT | alta |
 | 4 | POS stesso giorno, altra sede | media |
-| 5 | POS stessa sede, da 3 gg prima a 10 gg dopo (solo DDT con codice POS) | media |
-| 5-bis | POS stessa sede fino a 30 gg prima del DDT: pagamento anticipato (solo DDT con codice POS) | media |
+| 5 | POS stessa sede, da 1 a 10 gg dopo il DDT (solo DDT con codice POS) | media |
 | 6 | Ordinante = cliente, bonifico pari alla somma di 2–6 DDT | alta fino a 3 DDT, poi media |
 | 7 | Più DDT dello stesso cliente e giorno pagati con una transazione POS | media |
-| 8 | POS in finestra di date per DDT con altro codice (esclusi i `W..` RiBa) | bassa |
+| 8 | POS da 1 a 10 gg dopo il DDT per DDT con altro codice (esclusi i `W..` RiBa) | bassa |
 | 9 | Bonifico con solo l'importo uguale e un unico DDT candidato (esclusi i `W..` RiBa) | media se il DDT è `B..`, altrimenti bassa |
 
 Passaggi aggiuntivi per la fattura cumulativa mensile:

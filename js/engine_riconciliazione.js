@@ -11,9 +11,8 @@
     const CONFIG = {
         tolleranza: 0.02,              // euro: bonifici e quadrature (il cliente puo' arrotondare di qualche centesimo)
         tolleranzaPos: 0,              // euro: il POS deve corrispondere al centesimo, altrimenti non e' lui
-        posFinestraPrima: 3,           // POS battuto fino a N giorni prima della data DDT
-        posFinestraDopo: 10,           // ... o fino a N giorni dopo (DDT del sabato pagato il lunedi')
-        posAnticipoMax: 30,            // pagamento anticipato: POS fino a N giorni prima del DDT (merce consegnata dopo)
+        posFinestraDopo: 10,           // POS battuto fino a N giorni dopo il DDT (DDT del sabato pagato il lunedi').
+                                       // Mai prima: al banco si fa il DDT e poi il cliente paga.
         posMarginePeriodo: 3,          // DDT a POS negli ultimi N giorni del file Nexi: non ancora verificabili
         bonFinestraPrima: 7,           // bonifico arrivato fino a N giorni prima del DDT (anticipato)
         bonFinestraDopo: 90,           // ... o fino a N giorni dopo
@@ -101,6 +100,7 @@
                 let migliore = null, distMigliore = Infinity;
                 for (const p of listaPos) {
                     if (posUsati.has(p._uid)) continue;
+                    if (p.DataParsed < d.DataParsed) continue; // un POS precedente al DDT non puo' pagarlo
                     if (scarto(p.Importo, d) > tolleranza) continue;
                     if (!condizione(p, d)) continue;
                     const dist = Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) * 10 + (p.sede_tml === d.Sede ? 0 : 5);
@@ -112,13 +112,9 @@
 
         const stessoGiornoStessaSede = (p, d) => p.DataParsed === d.DataParsed && p.sede_tml === d.Sede;
         const stessoGiornoAltraSede = (p, d) => p.DataParsed === d.DataParsed && p.sede_tml !== d.Sede;
-        const inAnticipoPos = (p, d) => {
-            const g = U.giorniTra(d.DataParsed, p.DataParsed);
-            return p.sede_tml === d.Sede && g < -cfg.posFinestraPrima && g >= -cfg.posAnticipoMax;
-        };
         const inFinestraPos = (p, d) => {
             const g = U.giorniTra(d.DataParsed, p.DataParsed);
-            return p.sede_tml === d.Sede && g >= -cfg.posFinestraPrima && g <= cfg.posFinestraDopo && g !== 0;
+            return p.sede_tml === d.Sede && g > 0 && g <= cfg.posFinestraDopo;
         };
 
         // Piu' DDT dello stesso cliente pagati con un'unica transazione
@@ -259,7 +255,6 @@
         passBonFatturaMensile();
         passPos('pos_altra_sede', stessoGiornoAltraSede, () => 'media');
         passPos('pos_finestra', inFinestraPos, () => 'media', isPos);
-        passPos('pos_anticipato', inAnticipoPos, () => 'media', isPos);
         passBonClienteSomma();
         passPosGruppo();
         // Le RiBa seguono un percorso a parte: per loro niente abbinamenti deboli, solo prove forti
@@ -279,12 +274,15 @@
         const euro = n => n.toFixed(2).replace('.', ',') + ' €';
         const descrPos = p => `${euro(p.Importo)} del ${dataIt(p.DataParsed)} ore ${p.Ora.slice(0, 5)} (${p.Circuito} *${p.Carta})`;
 
+        // POS dello stesso giorno del DDT o dei giorni successivi (fino a maxGiorni)
+        const inAvanti = (d, p, maxGiorni) => { const g = U.giorniTra(d.DataParsed, p.DataParsed); return g >= 0 && g <= maxGiorni; };
+
         function indiziPos(d) {
             const indizi = [];
             const liberi = listaPos.filter(p => !posUsati.has(p._uid));
             // Pagamento misto: parte con carta, il resto (cifra tonda) in contanti
             for (const p of liberi) {
-                if (p.sede_tml !== d.Sede || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > 1 || p.Importo >= imp(d)) continue;
+                if (p.sede_tml !== d.Sede || !inAvanti(d, p, 1) || p.Importo >= imp(d)) continue;
                 const resto = Math.round((imp(d) - p.Importo) * 100);
                 if (resto % 500 === 0) indizi.push(`Possibile pagamento misto: POS ${descrPos(p)} + ${euro(resto / 100)} in contanti`);
             }
@@ -292,7 +290,7 @@
             const carte = carteCliente.get(d.CodiceCliente || d.Cliente);
             if (carte) {
                 for (const p of liberi) {
-                    if (!carte.has(p.Carta) || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > 15) continue;
+                    if (!carte.has(p.Carta) || !inAvanti(d, p, 15)) continue;
                     indizi.push(`Carta *${p.Carta} già usata dal cliente: POS non abbinato ${descrPos(p)}`);
                 }
             }
@@ -304,14 +302,14 @@
                 const sel = altri.filter((_, i) => m & (1 << i));
                 const tot = imp(d) + sel.reduce((s, x) => s + imp(x), 0);
                 for (const p of liberi) {
-                    if (Math.abs(p.Importo - tot) > TP || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > cfg.posFinestraDopo) continue;
+                    if (Math.abs(p.Importo - tot) > TP || !inAvanti(d, p, cfg.posFinestraDopo)) continue;
                     indizi.push(`Pagato insieme ai DDT ${sel.map(x => x.NrDoc).join(', ')} dello stesso cliente? POS non abbinato ${descrPos(p)} = totale dei DDT`);
                 }
             }
             // Stesso importo gia' abbinato a un altro DDT: possibile DDT doppio o scambio di cliente
             for (const [uid, ids] of posUsati) {
                 const p = listaPos.find(x => x._uid === uid);
-                if (scarto(p.Importo, d) > TP || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > 30) continue;
+                if (scarto(p.Importo, d) > TP || !inAvanti(d, p, 30)) continue;
                 const altro = ddtValidi.find(x => x.id === ids[0]);
                 if (altro) indizi.push(`POS dello stesso importo (${descrPos(p)}) già abbinato al DDT ${altro.NrDoc} di ${altro.NomeCliente}`);
             }

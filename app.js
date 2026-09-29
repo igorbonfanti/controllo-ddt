@@ -25,7 +25,6 @@ const REGOLE = {
     pos_altra_sede: "Stesso giorno e importo, ma sul POS dell'altra sede",
     pos_finestra: 'Stesso importo e sede, POS battuto in un giorno diverso dal DDT',
     pos_gruppo: 'Più DDT dello stesso cliente pagati con una sola transazione',
-    pos_anticipato: 'Stesso importo e sede, POS battuto prima della consegna (pagamento anticipato)',
     bon_rif_ddt: 'La causale del bonifico cita il numero del DDT',
     bon_cliente_importo: 'Ordinante uguale al cliente, stesso importo',
     bon_cliente_somma: 'Ordinante uguale al cliente, bonifico pari alla somma di più DDT',
