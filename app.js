@@ -15,6 +15,8 @@ const formatDate = (isoStr) => {
     return `${parts[2]}/${parts[1]}/${parts[0]}`;
 };
 const formatDateBreve = (isoStr) => formatDate(isoStr).slice(0, 5);
+// Importo del DDT come stampato (IVA calcolata sul totale), cioe' quello pagato dal cliente
+const importoDdt = (d) => d.ImportoDocumento ?? d.ImportoConIVA;
 const nomeSede = (c) => (c === 'F' ? 'Ferraris' : c === 'Z' ? 'Spezia' : 'Sconosciuta');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
@@ -255,7 +257,7 @@ function renderRiepilogo() {
     ui.riepilogo.innerHTML = carte.map(c => {
         const lista = righe.filter(categoria(c.id).test);
         const aperte = c.id === 'ok' ? lista : lista.filter(r => !corretti.has(r.anomaliaId));
-        const tot = aperte.reduce((s, r) => s + r.ddt.ImportoConIVA, 0);
+        const tot = aperte.reduce((s, r) => s + importoDdt(r.ddt), 0);
         const assente = c.richiedeBpm && !periodo.bpmCaricato;
         return `<button class="carta-riepilogo tono-${c.tono} ${state.filtri.categoria === c.id ? 'attiva' : ''}" data-cat="${c.id}" ${assente ? 'disabled' : ''}>
             <span class="carta-titolo"><i class="fa-solid ${c.icona}"></i> ${c.titolo}</span>
@@ -298,7 +300,7 @@ function renderVerifica() {
             <td>${nomeSede(r.ddt.Sede)}</td>
             <td><strong>${esc(r.ddt.NrDoc)}</strong></td>
             <td>${esc(r.ddt.Cliente)}</td>
-            <td class="amount">${formatEuro(r.ddt.ImportoConIVA)}</td>
+            <td class="amount"${r.ddt.ImportoDocumento !== undefined && Math.abs(r.ddt.ImportoDocumento - r.ddt.ImportoConIVA) > 0.001 ? ` title="Importo del DDT stampato. Nella colonna Importo con IVA dell'export Zucchetti: ${formatEuro(r.ddt.ImportoConIVA)}"` : ''}>${formatEuro(importoDdt(r.ddt))}</td>
             <td><span class="ag-pastiglia">${esc(r.ddt.Pagamento)}</span></td>
             <td>${badgeEsito(r)}</td>
             <td class="cella-incasso">${descriviIncasso(r)}</td>
@@ -354,7 +356,7 @@ function renderBonifici() {
             <td class="amount">${formatEuro(b.mov.Importo)}</td>
             <td>${esc(b.mov.Ordinante)}</td>
             <td>${b.ddt.length
-                ? b.ddt.map(d => `<strong>${esc(d.NrDoc)}</strong>/${d.Sede} <span class="ag-pastiglia">${esc(d.Pagamento)}</span> ${formatEuro(d.ImportoConIVA)}`).join('<br>')
+                ? b.ddt.map(d => `<strong>${esc(d.NrDoc)}</strong>/${d.Sede} <span class="ag-pastiglia">${esc(d.Pagamento)}</span> ${formatEuro(importoDdt(d))}`).join('<br>')
                     + `<br><small class="testo-tenue">${esc(b.ddt[0].Cliente)}</small>` + (b.nota ? `<br><small class="nota-evidenza">${esc(b.nota)}</small>` : '')
                 : `<span class="testo-tenue">non abbinato${b.suggerimento ? ' · cliente probabile: ' + esc(b.suggerimento) : ''}</span>`}</td>
             <td>${badgeConf(b.conf, b.regola)}</td>
@@ -389,7 +391,7 @@ function renderAllDdt() {
             <td>${formatDate(ddt.DataParsed)}</td>
             <td>${esc(ddt.NrDoc)}</td>
             <td>${esc(ddt.Cliente)}</td>
-            <td class="amount text-nexi">${formatEuro(ddt.ImportoConIVA)}</td>
+            <td class="amount text-nexi">${formatEuro(importoDdt(ddt))}</td>
             <td><span class="ag-pastiglia">${esc(ddt.Pagamento)}</span></td>
             <td>${r ? badgeEsito(r) : ''}</td>
         </tr>`;
@@ -493,7 +495,7 @@ function esportaReportCorrezioni() {
         { verso: 'POS', titolo: 'DA CORREGGERE IN POS — pagati con carta di credito o bancomat', righe: scegli('POS') },
         { verso: 'BB', titolo: 'DA CORREGGERE IN BB — pagati con bonifico', righe: scegli('BB') }
     ];
-    const totale = l => Math.round(l.reduce((s, r) => s + r.ddt.ImportoConIVA, 0) * 100) / 100;
+    const totale = l => Math.round(l.reduce((s, r) => s + importoDdt(r.ddt), 0) * 100) / 100;
 
     const pagamento = r => {
         const e = r.esito;
@@ -525,7 +527,7 @@ function esportaReportCorrezioni() {
         if (!s.righe.length) aoa.push(['', '', '', 'Nessun DDT da correggere']);
         for (const r of s.righe) {
             righeImporto.push(aoa.length);
-            aoa.push([nomeSede(r.ddt.Sede), r.ddt.NrDoc, formatDate(r.ddt.DataParsed), r.ddt.Cliente, r.ddt.ImportoConIVA,
+            aoa.push([nomeSede(r.ddt.Sede), r.ddt.NrDoc, formatDate(r.ddt.DataParsed), r.ddt.Cliente, importoDdt(r.ddt),
                 r.ddt.Pagamento, s.verso, ...pagamento(r), r.esito.conf, corretti.has(r.anomaliaId) ? 'già sistemato' : '']);
         }
         righeImporto.push(aoa.length);
@@ -569,7 +571,7 @@ function esportaExcel() {
     const colsDdt = [{ wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 40 }, { wch: 12 }, { wch: 10 }, { wch: 22 }, { wch: 10 }, { wch: 12 }, { wch: 60 }, { wch: 11 }, { wch: 45 }, { wch: 10 }];
     const hDdt = ['N° DDT', 'Sede', 'Data DDT', 'Cliente', 'Importo (€)', 'Pagamento attuale', 'Esito', 'Canale incasso', 'Data incasso', 'Dettaglio incasso', 'Affidabilità', 'Criterio', 'Sistemato'];
     const esitoTesto = r => r.verdetto === 'correggere' ? `Correggere in ${r.correggiIn}` : r.motivo;
-    const rigaDdt = r => [r.ddt.NrDoc, nomeSede(r.ddt.Sede), formatDate(r.ddt.DataParsed), r.ddt.Cliente, r.ddt.ImportoConIVA,
+    const rigaDdt = r => [r.ddt.NrDoc, nomeSede(r.ddt.Sede), formatDate(r.ddt.DataParsed), r.ddt.Cliente, importoDdt(r.ddt),
         r.ddt.Pagamento, esitoTesto(r), ...dettaglioIncasso(r), corretti.has(r.anomaliaId) ? '✓' : ''];
     const foglio = (nome, aoa, cols) => {
         const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -580,7 +582,7 @@ function esportaExcel() {
     // Riepilogo
     const conta = (id, sede) => {
         const l = righe.filter(categoria(id).test).filter(r => !sede || r.ddt.Sede === sede);
-        return [l.length, l.reduce((s, r) => s + r.ddt.ImportoConIVA, 0)];
+        return [l.length, l.reduce((s, r) => s + importoDdt(r.ddt), 0)];
     };
     const riep = [
         ['VERIFICA PAGAMENTI DDT — Il Magazzino Edile S.r.l.'],

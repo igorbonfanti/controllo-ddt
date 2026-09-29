@@ -112,7 +112,9 @@ Ogni sede dispone di tre terminali Nexi con ruoli distinti:
 
 ### 4.1 Matching DDT ↔ POS
 
-Il matching abbina ogni DDT a una transazione POS sulla base di **data esatta + importo IVA inclusa** (tolleranza ±€0,02 per arrotondamenti).
+Il matching abbina ogni DDT a una transazione POS sulla base di **data esatta + importo IVA inclusa, al centesimo**.
+
+**Importo del DDT stampato (v2.3):** la colonna `Importo con IVA` dell'export Zucchetti somma le righe già arrotondate una per una. Il DDT stampato invece calcola l'IVA sul totale: `imponibile × 1,22` arrotondato. I due valori differiscono di 1-2 centesimi in circa 1 DDT su 5, e il cliente paga la cifra stampata. L'app confronta POS e bonifici con entrambi i valori, al centesimo. Se lo scarto supera 0,05 € (IVA non tutta al 22%) si usa solo il valore dell'export. Sui dati di settembre 2026 tutti i 287 abbinamenti POS risultano esatti al centesimo. Resta una tolleranza di ±0,02 € solo per il POS dello stesso giorno e della stessa sede; in tutti gli altri casi (altro giorno, altra sede, pagamento anticipato) il POS deve essere esatto.
 
 **Algoritmo:**
 ```

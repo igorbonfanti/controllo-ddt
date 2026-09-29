@@ -25,6 +25,14 @@
             const importo = U.parseNumero(row[COL.importo]);
             if (isNaN(importo) || importo === 0) continue;
 
+            // Il DDT stampato calcola l'IVA sul totale (imponibile x 1,22 arrotondato), mentre la colonna
+            // "Importo con IVA" dell'export somma le righe gia' arrotondate una per una e puo' differire
+            // di qualche centesimo. Il cliente paga la cifra stampata. Se l'IVA non e' tutta al 22%
+            // i due valori si allontanano troppo e si tiene quello dell'export.
+            const imponibile = U.parseNumero(row[COL.imponibile]);
+            const stampato = isNaN(imponibile) ? importo : Math.round(imponibile * 122) / 100;
+            const importoDocumento = Math.abs(stampato - importo) <= 0.05 ? stampato : importo;
+
             // "Cliente: CODICE - NOME CITTA" -> codice + nome
             const cliente = String(row[COL.cliente] || '').replace(/^\s*Cliente:\s*/i, '').replace(/\s+/g, ' ').trim();
             const sepIdx = cliente.indexOf(' - ');
@@ -38,6 +46,7 @@
                 DataParsed: dataIso,
                 Pagamento: String(row[COL.pagamento] || '').trim().toUpperCase(),
                 ImportoConIVA: Math.round(importo * 100) / 100,
+                ImportoDocumento: importoDocumento,
                 Cliente: cliente,
                 CodiceCliente: codiceCliente,
                 NomeCliente: nomeCliente,

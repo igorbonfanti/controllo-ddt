@@ -9,7 +9,8 @@
     const U = root.Util || (typeof require !== 'undefined' ? require('./util.js') : null);
 
     const CONFIG = {
-        tolleranza: 0.02,              // euro, arrotondamenti
+        tolleranza: 0.02,              // euro: bonifici e quadrature (il cliente puo' arrotondare di qualche centesimo)
+        tolleranzaPos: 0,              // euro: il POS deve corrispondere al centesimo, altrimenti non e' lui
         posFinestraPrima: 3,           // POS battuto fino a N giorni prima della data DDT
         posFinestraDopo: 10,           // ... o fino a N giorni dopo (DDT del sabato pagato il lunedi')
         posAnticipoMax: 30,            // pagamento anticipato: POS fino a N giorni prima del DDT (merce consegnata dopo)
@@ -52,6 +53,11 @@
     function eseguiRiconciliazione(listaDdt, listaPos, listaBpm, opzioni) {
         const cfg = Object.assign({}, CONFIG, opzioni || {});
         const T = cfg.tolleranza + 1e-9;
+        const TP = cfg.tolleranzaPos + 0.001; // solo per assorbire gli errori di virgola mobile
+        // Importo pagato dal cliente: quello del DDT stampato (vedi parser_ddt.js); il confronto
+        // accetta anche la colonna "Importo con IVA" dell'export, che puo' differire di un centesimo.
+        const imp = d => d.ImportoDocumento ?? d.ImportoConIVA;
+        const scarto = (x, d) => Math.min(Math.abs(x - d.ImportoConIVA), Math.abs(x - imp(d)));
         listaPos = listaPos || [];
         listaBpm = listaBpm || null;
 
@@ -88,14 +94,14 @@
 
         // --- Passaggi POS -------------------------------------------------------------
 
-        function passPos(regola, condizione, confDi, soloCodici) {
+        function passPos(regola, condizione, confDi, soloCodici, tolleranza = TP) {
             for (const d of ordinati('POS')) {
                 if (!libero(d)) continue;
                 if (soloCodici && !soloCodici(d.Pagamento)) continue;
                 let migliore = null, distMigliore = Infinity;
                 for (const p of listaPos) {
                     if (posUsati.has(p._uid)) continue;
-                    if (Math.abs(p.Importo - d.ImportoConIVA) > T) continue;
+                    if (scarto(p.Importo, d) > tolleranza) continue;
                     if (!condizione(p, d)) continue;
                     const dist = Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) * 10 + (p.sede_tml === d.Sede ? 0 : 5);
                     if (dist < distMigliore) { migliore = p; distMigliore = dist; }
@@ -130,7 +136,7 @@
                     if (posUsati.has(p._uid) || p.sede_tml !== g[0].Sede) continue;
                     const dg = U.giorniTra(g[0].DataParsed, p.DataParsed);
                     if (dg < 0 || dg > 3) continue;
-                    const sub = cercaSomma(g.filter(libero), p.Importo, 4, T);
+                    const sub = cercaSomma(g.filter(libero), p.Importo, 4, TP);
                     if (sub) { assegnaPos(sub, p, 'media', 'pos_gruppo'); break; }
                 }
             }
@@ -167,7 +173,7 @@
                     if (scelto && !trovati.includes(scelto)) trovati.push(scelto);
                 }
                 if (!trovati.length) continue;
-                const tot = trovati.reduce((s, d) => s + d.ImportoConIVA, 0);
+                const tot = trovati.reduce((s, d) => s + imp(d), 0);
                 const diff = Math.round((b.Importo - tot) * 100) / 100;
                 if (Math.abs(diff) <= T) assegnaBon(trovati, b, 'alta', 'bon_rif_ddt');
                 else assegnaBon(trovati, b, 'media', 'bon_rif_ddt', `importo diverso di ${diff.toFixed(2)} €`);
@@ -180,7 +186,7 @@
                 if (bonUsati.has(b._uid) || !b.RifFatture || !b.RifFatture.length) continue;
                 const trovati = ddtValidi.filter(d => libero(d) && d.NumFattura && b.RifFatture.includes(d.NumFattura) && stessoCliente(d, b));
                 if (!trovati.length) continue;
-                const tot = trovati.reduce((s, d) => s + d.ImportoConIVA, 0);
+                const tot = trovati.reduce((s, d) => s + imp(d), 0);
                 const diff = Math.round((b.Importo - tot) * 100) / 100;
                 if (Math.abs(diff) <= T) assegnaBon(trovati, b, 'alta', 'bon_rif_fattura');
                 else assegnaBon(trovati, b, 'media', 'bon_rif_fattura', `importo diverso di ${diff.toFixed(2)} €`);
@@ -204,7 +210,7 @@
                     if (b.DataParsed < U.fineMese(lista[0].DataParsed)) continue;
                     // Prima tutti i DDT del mese, poi solo quelli a bonifico
                     const varianti = [lista, lista.filter(d => isBonifico(d.Pagamento))];
-                    const ok = varianti.find(v => v.length >= 2 && Math.abs(v.reduce((s, d) => s + d.ImportoConIVA, 0) - b.Importo) <= T);
+                    const ok = varianti.find(v => v.length >= 2 && Math.abs(v.reduce((s, d) => s + imp(d), 0) - b.Importo) <= T);
                     if (ok) { assegnaBon(ok, b, 'alta', 'bon_fattura_mese', `fattura di ${mese.slice(5)}/${mese.slice(0, 4)}`); break; }
                 }
             }
@@ -214,7 +220,7 @@
         function passBonClienteImporto() {
             for (const b of bonifici) {
                 if (bonUsati.has(b._uid)) continue;
-                const cand = ddtValidi.filter(d => libero(d) && Math.abs(d.ImportoConIVA - b.Importo) <= T && inFinestraBon(d, b) && stessoCliente(d, b))
+                const cand = ddtValidi.filter(d => libero(d) && scarto(b.Importo, d) <= T && inFinestraBon(d, b) && stessoCliente(d, b))
                     .sort((x, y) => priorita(x, 'BON') - priorita(y, 'BON') || Math.abs(U.giorniTra(x.DataParsed, b.DataParsed)) - Math.abs(U.giorniTra(y.DataParsed, b.DataParsed)));
                 if (cand.length) assegnaBon([cand[0]], b, 'alta', 'bon_cliente_importo');
             }
@@ -224,7 +230,7 @@
         function passBonClienteSomma() {
             for (const b of bonifici) {
                 if (bonUsati.has(b._uid)) continue;
-                const cand = ddtValidi.filter(d => libero(d) && inFinestraBon(d, b) && stessoCliente(d, b) && d.ImportoConIVA < b.Importo + T)
+                const cand = ddtValidi.filter(d => libero(d) && inFinestraBon(d, b) && stessoCliente(d, b) && imp(d) < b.Importo + T)
                     .sort((x, y) => x.DataParsed.localeCompare(y.DataParsed))
                     .slice(-cfg.sommaMaxCandidati);
                 if (cand.length < 2) continue;
@@ -237,7 +243,7 @@
         function passBonSoloImporto() {
             for (const b of bonifici) {
                 if (bonUsati.has(b._uid)) continue;
-                const cand = ddtValidi.filter(d => libero(d) && Math.abs(d.ImportoConIVA - b.Importo) <= T && inFinestraBon(d, b, cfg.bonImportoFinestraDopo));
+                const cand = ddtValidi.filter(d => libero(d) && scarto(b.Importo, d) <= T && inFinestraBon(d, b, cfg.bonImportoFinestraDopo));
                 if (cand.length !== 1 || isRiba(cand[0].Pagamento)) continue;
                 const d = cand[0];
                 assegnaBon([d], b, isBonifico(d.Pagamento) ? 'media' : 'bassa', 'bon_solo_importo');
@@ -247,7 +253,8 @@
         // --- Sequenza: dal piu' affidabile al meno affidabile ------------------------
         passBonRiferimento();
         passBonNumeroFattura();
-        passPos('pos_esatto', stessoGiornoStessaSede, () => 'alta');
+        // Solo qui (stesso giorno, stessa sede) si accettano 1-2 centesimi di arrotondamento: altrove il POS deve essere esatto
+        passPos('pos_esatto', stessoGiornoStessaSede, () => 'alta', null, T);
         passBonClienteImporto();
         passBonFatturaMensile();
         passPos('pos_altra_sede', stessoGiornoAltraSede, () => 'media');
@@ -277,8 +284,8 @@
             const liberi = listaPos.filter(p => !posUsati.has(p._uid));
             // Pagamento misto: parte con carta, il resto (cifra tonda) in contanti
             for (const p of liberi) {
-                if (p.sede_tml !== d.Sede || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > 1 || p.Importo >= d.ImportoConIVA) continue;
-                const resto = Math.round((d.ImportoConIVA - p.Importo) * 100);
+                if (p.sede_tml !== d.Sede || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > 1 || p.Importo >= imp(d)) continue;
+                const resto = Math.round((imp(d) - p.Importo) * 100);
                 if (resto % 500 === 0) indizi.push(`Possibile pagamento misto: POS ${descrPos(p)} + ${euro(resto / 100)} in contanti`);
             }
             // Transazioni non abbinate fatte con una carta che il cliente ha usato per altri DDT
@@ -295,16 +302,16 @@
                 .slice(0, 10);
             for (let m = 1; m < (1 << altri.length); m++) {
                 const sel = altri.filter((_, i) => m & (1 << i));
-                const tot = d.ImportoConIVA + sel.reduce((s, x) => s + x.ImportoConIVA, 0);
+                const tot = imp(d) + sel.reduce((s, x) => s + imp(x), 0);
                 for (const p of liberi) {
-                    if (Math.abs(p.Importo - tot) > T || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > cfg.posFinestraDopo) continue;
+                    if (Math.abs(p.Importo - tot) > TP || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > cfg.posFinestraDopo) continue;
                     indizi.push(`Pagato insieme ai DDT ${sel.map(x => x.NrDoc).join(', ')} dello stesso cliente? POS non abbinato ${descrPos(p)} = totale dei DDT`);
                 }
             }
             // Stesso importo gia' abbinato a un altro DDT: possibile DDT doppio o scambio di cliente
             for (const [uid, ids] of posUsati) {
                 const p = listaPos.find(x => x._uid === uid);
-                if (Math.abs(p.Importo - d.ImportoConIVA) > T || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > 30) continue;
+                if (scarto(p.Importo, d) > TP || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > 30) continue;
                 const altro = ddtValidi.find(x => x.id === ids[0]);
                 if (altro) indizi.push(`POS dello stesso importo (${descrPos(p)}) già abbinato al DDT ${altro.NrDoc} di ${altro.NomeCliente}`);
             }
@@ -488,7 +495,7 @@
     // Sottoinsieme di al massimo maxN elementi la cui somma e' pari al target (in centesimi).
     // Preferisce il sottoinsieme piu' piccolo.
     function cercaSomma(items, target, maxN, T) {
-        const cent = items.map(d => Math.round((d.ImportoConIVA ?? d.Importo) * 100));
+        const cent = items.map(d => Math.round((d.ImportoDocumento ?? d.ImportoConIVA ?? d.Importo) * 100));
         const tgt = Math.round(target * 100);
         const tol = Math.round(T * 100);
         const n = items.length;
