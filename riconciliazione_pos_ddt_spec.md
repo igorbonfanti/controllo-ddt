@@ -158,13 +158,14 @@ Da v2.0 l'app (statica, `js/engine_riconciliazione.js`) verifica ogni DDT in ent
 |---|---|---|
 | 1 | La causale del bonifico cita il n° DDT (`ddt 2376-z`, `ddt 4230/f`) | alta (media se l'importo differisce) |
 | 2 | POS stesso giorno, stessa sede, stesso importo | alta |
-| 3 | Ordinante = cliente e stesso importo, bonifico da 7 gg prima a 90 gg dopo il DDT | alta |
+| 3 | Ordinante = cliente e stesso importo, bonifico da 60 gg prima a 90 gg dopo il DDT | alta |
 | 4 | POS stesso giorno, altra sede | media |
 | 5 | POS stessa sede, da 1 a 10 gg dopo il DDT (solo DDT con codice POS) | media |
 | 6 | Ordinante = cliente, bonifico pari alla somma di 2–6 DDT | alta fino a 3 DDT, poi media |
 | 7 | Più DDT dello stesso cliente e giorno pagati con una transazione POS | media |
 | 8 | POS da 1 a 10 gg dopo il DDT per DDT con altro codice (esclusi i `W..` RiBa) | bassa |
-| 9 | Bonifico con solo l'importo uguale e un unico DDT candidato (esclusi i `W..` RiBa) | media se il DDT è `B..`, altrimenti bassa |
+| 6-bis | Acconto + saldo: 2-3 bonifici dello stesso cliente che insieme fanno l'importo di un DDT | media |
+| 9 | Bonifico con solo l'importo uguale e un unico DDT candidato, da 7 gg prima a 30 gg dopo il DDT (esclusi i `W..` RiBa) | media se il DDT è `B..`, altrimenti bassa |
 
 Passaggi aggiuntivi per la fattura cumulativa mensile:
 - dopo il n° DDT: la causale cita un numero fattura (`fatt.`, `ft.`, `fattura nr.`) presente nella colonna `Num. fattura` dei DDT dello stesso cliente → alta;
@@ -184,6 +185,10 @@ Passaggi aggiuntivi per la fattura cumulativa mensile:
 **Storni Nexi:** uno storno compare come riga `Stornata` accanto alla riga originale `Contabilizzata` con la stessa autorizzazione. Si scartano entrambe.
 
 **Quadratura accrediti Nexi:** Nexi accredita al lordo un bonifico per sede e per giorno di transazioni. Bancomat: il giorno è nella descrizione. Visa/Mastercard (`accredito internaz. e apm`): si cerca il giorno con lo stesso totale nei 7 giorni precedenti. Amex accredita a parte.
+
+**Bonifici anticipati e acconti (v2.5):** a differenza del POS, un bonifico può arrivare prima del DDT (anticipo su ordine, preventivo, acconto) e può essere parziale.
+- Quando un bonifico paga più DDT si cercano prima i DDT già emessi alla data del bonifico, e solo dopo quelli successivi.
+- I bonifici di un cliente che non chiudono nessun DDT diventano **acconti aperti**, se non citano fatture o DDT e non parlano di saldo o RiBa (quelli sono pagamenti di documenti precedenti). Accanto ai DDT del cliente ancora da incassare si mostrano gli acconti, il totale versato e il totale dovuto (restano X € / credito del cliente X €).
 
 Ordinante = cliente: la prima parola distintiva della ragione sociale (senza SRL, EDIL, città…) compare nella descrizione del bonifico, oppure ci compaiono almeno metà delle parole distintive.
 

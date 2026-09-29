@@ -14,7 +14,9 @@
         posFinestraDopo: 10,           // POS battuto fino a N giorni dopo il DDT (DDT del sabato pagato il lunedi').
                                        // Mai prima: al banco si fa il DDT e poi il cliente paga.
         posMarginePeriodo: 3,          // DDT a POS negli ultimi N giorni del file Nexi: non ancora verificabili
-        bonFinestraPrima: 7,           // bonifico arrivato fino a N giorni prima del DDT (anticipato)
+        bonFinestraPrima: 60,          // bonifico arrivato fino a N giorni prima del DDT (anticipato, acconto su ordine)
+        bonImportoFinestraPrima: 7,    // abbinamento solo per importo: anticipo massimo piu' stretto
+        accontiMax: 3,                 // acconto + saldo: al massimo N bonifici per lo stesso DDT
         bonFinestraDopo: 90,           // ... o fino a N giorni dopo
         bonImportoFinestraDopo: 30,    // abbinamento solo per importo: finestra piu' stretta
         bonTolleranzaScadenza: 10,     // bonifico non arrivato: anomalia N giorni dopo la scadenza della fattura
@@ -84,10 +86,12 @@
                 esitoDdt.set(d.id, { canale: 'POS', pos, conf, regola, gruppo: ddts.length > 1 ? ddts.map(x => x.NrDoc) : null });
             }
         }
+        // bon puo' essere un bonifico o un elenco (acconto + saldo)
         function assegnaBon(ddts, bon, conf, regola, nota) {
-            bonUsati.set(bon._uid, { ddtIds: ddts.map(d => d.id), conf, regola, nota: nota || '' });
+            const elenco = [].concat(bon).sort((a, b) => a.DataParsed.localeCompare(b.DataParsed));
+            for (const b of elenco) bonUsati.set(b._uid, { ddtIds: ddts.map(d => d.id), conf, regola, nota: nota || '', insieme: elenco.length > 1 ? elenco : null });
             for (const d of ddts) {
-                esitoDdt.set(d.id, { canale: 'BONIFICO', bon, conf, regola, nota: nota || '', gruppo: ddts.length > 1 ? ddts.map(x => x.NrDoc) : null });
+                esitoDdt.set(d.id, { canale: 'BONIFICO', bon: elenco[elenco.length - 1], bonifici: elenco, conf, regola, nota: nota || '', gruppo: ddts.length > 1 ? ddts.map(x => x.NrDoc) : null });
             }
         }
 
@@ -152,9 +156,10 @@
             cacheNome.set(k, ok);
             return ok;
         }
-        const inFinestraBon = (d, bon, dopo = cfg.bonFinestraDopo) => {
+        // I bonifici possono arrivare anche prima del DDT (anticipo, acconto su ordine)
+        const inFinestraBon = (d, bon, dopo = cfg.bonFinestraDopo, prima = cfg.bonFinestraPrima) => {
             const g = U.giorniTra(d.DataParsed, bon.DataParsed);
-            return g >= -cfg.bonFinestraPrima && g <= dopo;
+            return g >= -prima && g <= dopo;
         };
 
         // 1. La causale cita il numero DDT
@@ -217,7 +222,9 @@
             for (const b of bonifici) {
                 if (bonUsati.has(b._uid)) continue;
                 const cand = ddtValidi.filter(d => libero(d) && scarto(b.Importo, d) <= T && inFinestraBon(d, b) && stessoCliente(d, b))
-                    .sort((x, y) => priorita(x, 'BON') - priorita(y, 'BON') || Math.abs(U.giorniTra(x.DataParsed, b.DataParsed)) - Math.abs(U.giorniTra(y.DataParsed, b.DataParsed)));
+                    .sort((x, y) => priorita(x, 'BON') - priorita(y, 'BON')
+                        || (x.DataParsed > b.DataParsed) - (y.DataParsed > b.DataParsed)   // prima i DDT gia' emessi
+                        || Math.abs(U.giorniTra(x.DataParsed, b.DataParsed)) - Math.abs(U.giorniTra(y.DataParsed, b.DataParsed)));
                 if (cand.length) assegnaBon([cand[0]], b, 'alta', 'bon_cliente_importo');
             }
         }
@@ -226,12 +233,25 @@
         function passBonClienteSomma() {
             for (const b of bonifici) {
                 if (bonUsati.has(b._uid)) continue;
-                const cand = ddtValidi.filter(d => libero(d) && inFinestraBon(d, b) && stessoCliente(d, b) && imp(d) < b.Importo + T)
-                    .sort((x, y) => x.DataParsed.localeCompare(y.DataParsed))
-                    .slice(-cfg.sommaMaxCandidati);
-                if (cand.length < 2) continue;
-                const sub = cercaSomma(cand, b.Importo, cfg.sommaMaxDDT, T);
+                const tutti = ddtValidi.filter(d => libero(d) && inFinestraBon(d, b) && stessoCliente(d, b) && imp(d) < b.Importo + T)
+                    .sort((x, y) => x.DataParsed.localeCompare(y.DataParsed));
+                // Prima i DDT gia' emessi al momento del bonifico (il caso normale: si paga la merce ritirata),
+                // solo dopo anche quelli successivi (bonifico anticipato)
+                const giaEmessi = tutti.filter(d => d.DataParsed <= b.DataParsed).slice(-cfg.sommaMaxCandidati);
+                let sub = giaEmessi.length >= 2 ? cercaSomma(giaEmessi, b.Importo, cfg.sommaMaxDDT, T) : null;
+                if (!sub && tutti.length >= 2) sub = cercaSomma(tutti.slice(-cfg.sommaMaxCandidati), b.Importo, cfg.sommaMaxDDT, T);
                 if (sub) assegnaBon(sub, b, sub.length <= 3 ? 'alta' : 'media', 'bon_cliente_somma');
+            }
+        }
+
+        // 3-ter. Acconto + saldo: piu' bonifici dello stesso cliente che insieme pagano un DDT
+        function passBonAccontoSaldo() {
+            for (const d of ddtValidi) {
+                if (!libero(d) || isRiba(d.Pagamento)) continue;
+                const cand = bonifici.filter(b => !bonUsati.has(b._uid) && b.Importo < imp(d) && inFinestraBon(d, b) && stessoCliente(d, b));
+                if (cand.length < 2) continue;
+                const sub = cercaSomma(cand, imp(d), cfg.accontiMax, T);
+                if (sub) assegnaBon([d], sub, 'media', 'bon_acconto_saldo', `${sub.length} bonifici: acconto + saldo`);
             }
         }
 
@@ -239,7 +259,7 @@
         function passBonSoloImporto() {
             for (const b of bonifici) {
                 if (bonUsati.has(b._uid)) continue;
-                const cand = ddtValidi.filter(d => libero(d) && scarto(b.Importo, d) <= T && inFinestraBon(d, b, cfg.bonImportoFinestraDopo));
+                const cand = ddtValidi.filter(d => libero(d) && scarto(b.Importo, d) <= T && inFinestraBon(d, b, cfg.bonImportoFinestraDopo, cfg.bonImportoFinestraPrima));
                 if (cand.length !== 1 || isRiba(cand[0].Pagamento)) continue;
                 const d = cand[0];
                 assegnaBon([d], b, isBonifico(d.Pagamento) ? 'media' : 'bassa', 'bon_solo_importo');
@@ -256,6 +276,7 @@
         passPos('pos_altra_sede', stessoGiornoAltraSede, () => 'media');
         passPos('pos_finestra', inFinestraPos, () => 'media', isPos);
         passBonClienteSomma();
+        passBonAccontoSaldo();
         passPosGruppo();
         // Le RiBa seguono un percorso a parte: per loro niente abbinamenti deboli, solo prove forti
         passPos('pos_finestra', inFinestraPos, () => 'bassa', p => !isPos(p) && !isRiba(p));
@@ -321,6 +342,36 @@
             return indizi;
         }
 
+        // --- Acconti aperti: bonifici di un cliente che non chiudono nessun DDT ------------
+        // Restano da parte finche' il cliente ritira la merce o paga il saldo; si mostrano
+        // accanto ai DDT di quel cliente ancora da incassare.
+        const chiaveCliente = d => d.CodiceCliente || d.Cliente;
+        const RE_ACCONTO = /accont|anticip|caparr|prevent|proforma|pro forma|ordine/i;
+        const accontiCliente = new Map(); // chiave cliente -> [bonifici]
+        const clienteDiBonifico = new Map(); // bon._uid -> chiave cliente
+        // Un bonifico che cita fatture o DDT, o parla di saldo, paga documenti precedenti: non e' un acconto
+        const pagaDocumentiPrecedenti = b => (b.RifFatture && b.RifFatture.length) || (b.RifDDT && b.RifDDT.length)
+            || /\bsaldo\b|\bf\s?att|\bft\b|\bri\.?b[ae]\b|insolut/i.test(b.Ordinante);
+        for (const b of bonifici) {
+            if (bonUsati.has(b._uid) || pagaDocumentiPrecedenti(b)) continue;
+            const clienti = [...new Set(ddtValidi.filter(d => stessoCliente(d, b)).map(chiaveCliente))];
+            if (clienti.length !== 1) continue; // nessun cliente o ordinante ambiguo
+            clienteDiBonifico.set(b._uid, clienti[0]);
+            if (!accontiCliente.has(clienti[0])) accontiCliente.set(clienti[0], []);
+            accontiCliente.get(clienti[0]).push(b);
+        }
+        const daIncassareCliente = k => ddtValidi.filter(d => chiaveCliente(d) === k && !esitoDdt.has(d.id) && !isRiba(d.Pagamento) && !isContanti(d.Pagamento));
+        const descrAcconto = b => `${euro(b.Importo)} il ${dataIt(b.DataParsed)}${RE_ACCONTO.test(b.Ordinante) ? ' (acconto)' : ''}`;
+        function indizioAcconti(d) {
+            const acc = accontiCliente.get(chiaveCliente(d));
+            if (!acc) return null;
+            const versato = acc.reduce((s, b) => s + b.Importo, 0);
+            const dovuto = daIncassareCliente(chiaveCliente(d)).reduce((s, x) => s + imp(x), 0);
+            return `Bonifici del cliente non ancora abbinati: ${acc.map(descrAcconto).join(', ')}. `
+                + `Versato ${euro(versato)}, DDT del cliente ancora da incassare ${euro(dovuto)}`
+                + (versato > dovuto + T ? ` (credito del cliente ${euro(versato - dovuto)})` : versato < dovuto - T ? ` (restano ${euro(dovuto - versato)})` : ' (pari)');
+        }
+
         // --- Verdetti -----------------------------------------------------------------
         const datePos = listaPos.map(p => p.DataParsed).sort();
         const posMin = datePos[0] || null, posMax = datePos[datePos.length - 1] || null;
@@ -373,6 +424,8 @@
             } else {
                 r.verdetto = 'nessun_riscontro'; r.motivo = `Codice ${pag}: nessun incasso nel periodo`;
             }
+            const acconti = !isRiba(pag) && !isContanti(pag) ? indizioAcconti(d) : null;
+            if (acconti) r.indizi = [acconti].concat((r.indizi || []).filter(i => !i.startsWith('Nessuna traccia')));
             return r;
         });
 
@@ -392,6 +445,11 @@
                 conf: u ? u.conf : null,
                 regola: u ? u.regola : null,
                 nota: u ? u.nota : '',
+                insieme: u && u.insieme ? u.insieme.filter(x => x !== b) : null,
+                pagaPrecedenti: !u && !!pagaDocumentiPrecedenti(b),
+                acconto: !u && clienteDiBonifico.has(b._uid)
+                    ? { cliente: clienteDiBonifico.get(b._uid), daIncassare: daIncassareCliente(clienteDiBonifico.get(b._uid)), esplicito: RE_ACCONTO.test(b.Ordinante) }
+                    : null,
                 suggerimento
             };
         });

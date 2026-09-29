@@ -30,7 +30,8 @@ const REGOLE = {
     bon_cliente_somma: 'Ordinante uguale al cliente, bonifico pari alla somma di più DDT',
     bon_solo_importo: 'Solo stesso importo: ordinante non riconosciuto',
     bon_rif_fattura: 'La causale del bonifico cita il numero della fattura dei DDT',
-    bon_fattura_mese: 'Ordinante uguale al cliente, bonifico pari al totale dei DDT del mese (fattura mensile)'
+    bon_fattura_mese: 'Ordinante uguale al cliente, bonifico pari al totale dei DDT del mese (fattura mensile)',
+    bon_acconto_saldo: 'Più bonifici dello stesso cliente (acconto + saldo) che insieme fanno l\'importo del DDT'
 };
 
 // Categorie della scheda "Verifica pagamenti"
@@ -82,10 +83,16 @@ function descriviIncasso(r) {
         return `<i class="fa-solid fa-credit-card"></i> ${formatDateBreve(p.DataParsed)} ${esc(p.Ora.slice(0, 5))} · ${esc(p.Circuito)} · auth ${esc(p.Autorizzazione)}`
             + (note.length ? ` <span class="nota-evidenza">(${esc(note.join(', '))})</span>` : '') + altri;
     }
-    const b = e.bon;
-    return `<i class="fa-solid fa-building-columns"></i> ${formatDateBreve(b.DataParsed)} · <span title="${esc(b.Descrizione)}">${esc(b.Ordinante.length > 60 ? b.Ordinante.slice(0, 60) + '…' : b.Ordinante)}</span>`
+    const riga = b => `<i class="fa-solid fa-building-columns"></i> ${formatDateBreve(b.DataParsed)}`
+        + ((e.bonifici || []).length > 1 ? ` · ${formatEuro(b.Importo)}` : '')
+        + ` · <span title="${esc(b.Descrizione)}">${esc(b.Ordinante.length > 60 ? b.Ordinante.slice(0, 60) + '…' : b.Ordinante)}</span>`;
+    return (e.bonifici || [e.bon]).map(riga).join('<br>')
         + (e.nota ? ` <span class="nota-evidenza">(${esc(e.nota)})</span>` : '') + altri;
 }
+
+// Bonifici di un esito in una riga di testo (report ed export)
+const testoBonifici = (e) => (e.bonifici || [e.bon])
+    .map(b => `${formatDate(b.DataParsed)} ${formatEuro(b.Importo)} da: ${b.Ordinante}`).join(' + ');
 
 // --- DOM ---
 const ui = {
@@ -338,6 +345,19 @@ ui.filtroConf.addEventListener('change', () => { state.filtri.conf = ui.filtroCo
 ui.filtroTesto.addEventListener('input', () => { state.filtri.testo = ui.filtroTesto.value; renderVerifica(); });
 ui.toggleCorretti.addEventListener('change', renderVerifica);
 
+// Bonifico senza DDT: acconto ancora aperto, saldo di documenti precedenti, o da capire
+function descriviNonAbbinato(b) {
+    if (b.acconto) {
+        const dovuto = b.acconto.daIncassare.reduce((s, d) => s + importoDdt(d), 0);
+        return `<span class="ag-pastiglia pastiglia-blu">acconto aperto</span> <span class="testo-tenue">${esc(b.acconto.daIncassare.length ? b.acconto.daIncassare[0].Cliente : b.suggerimento)}`
+            + ` · DDT del cliente ancora da incassare: ${b.acconto.daIncassare.length} per ${formatEuro(dovuto)}</span>`;
+    }
+    if (b.pagaPrecedenti) {
+        return `<span class="ag-pastiglia">fatture o DDT precedenti</span>${b.suggerimento ? ` <span class="testo-tenue">${esc(b.suggerimento)}</span>` : ''}`;
+    }
+    return `<span class="testo-tenue">non abbinato${b.suggerimento ? ' · cliente probabile: ' + esc(b.suggerimento) : ''}</span>`;
+}
+
 function renderBonifici() {
     const { bonifici, quadraturaNexi, periodo } = state.risultati;
     if (!periodo.bpmCaricato) {
@@ -357,7 +377,8 @@ function renderBonifici() {
             <td>${b.ddt.length
                 ? b.ddt.map(d => `<strong>${esc(d.NrDoc)}</strong>/${d.Sede} <span class="ag-pastiglia">${esc(d.Pagamento)}</span> ${formatEuro(importoDdt(d))}`).join('<br>')
                     + `<br><small class="testo-tenue">${esc(b.ddt[0].Cliente)}</small>` + (b.nota ? `<br><small class="nota-evidenza">${esc(b.nota)}</small>` : '')
-                : `<span class="testo-tenue">non abbinato${b.suggerimento ? ' · cliente probabile: ' + esc(b.suggerimento) : ''}</span>`}</td>
+                    + (b.insieme && b.insieme.length ? `<br><small class="testo-tenue">insieme al bonifico ${b.insieme.map(x => `${formatDate(x.DataParsed)} ${formatEuro(x.Importo)}`).join(', ')}</small>` : '')
+                : descriviNonAbbinato(b)}</td>
             <td>${badgeConf(b.conf, b.regola)}</td>
         </tr>`).join('');
 
@@ -504,8 +525,7 @@ function esportaReportCorrezioni() {
             return [formatDate(p.DataParsed),
                 `POS ${nomeSede(p.sede_tml)} ore ${p.Ora.slice(0, 5)} · ${p.Circuito}${p.Carta ? ' *' + p.Carta : ''} · aut. ${p.Autorizzazione} · ${formatEuro(p.Importo)}${insieme}`];
         }
-        const b = e.bon;
-        return [formatDate(b.DataParsed), `Bonifico ${formatEuro(b.Importo)} da: ${b.Ordinante}${e.nota ? ' (' + e.nota + ')' : ''}${insieme}`];
+        return [formatDate(e.bon.DataParsed), `Bonifico ${testoBonifici(e)}${e.nota ? ' (' + e.nota + ')' : ''}${insieme}`];
     };
 
     const intest = ['Sede', 'N° DDT', 'Data DDT', 'Cliente', 'Importo', 'Registrato', 'Correggere in', 'Data pagamento', 'Pagamento trovato', 'Affidabilità', 'Corretto (sigla e data)'];
@@ -564,7 +584,7 @@ function esportaExcel() {
                 `${e.pos.Ora} · ${e.pos.Circuito} · auth ${e.pos.Autorizzazione} · ${nomeSede(e.pos.sede_tml)} ${e.pos.tipo_tml}${gruppo}`,
                 e.conf, REGOLE[e.regola] || e.regola];
         }
-        return ['Bonifico', formatDate(e.bon.DataParsed), `${e.bon.Ordinante}${e.nota ? ' — ' + e.nota : ''}${gruppo}`, e.conf, REGOLE[e.regola] || e.regola];
+        return ['Bonifico', formatDate(e.bon.DataParsed), `${testoBonifici(e)}${e.nota ? ' — ' + e.nota : ''}${gruppo}`, e.conf, REGOLE[e.regola] || e.regola];
     };
     const ordina = (a, b) => a.ddt.Sede.localeCompare(b.ddt.Sede) || a.ddt.DataParsed.localeCompare(b.ddt.DataParsed);
     const colsDdt = [{ wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 40 }, { wch: 12 }, { wch: 10 }, { wch: 22 }, { wch: 10 }, { wch: 12 }, { wch: 60 }, { wch: 11 }, { wch: 45 }, { wch: 10 }];
@@ -621,7 +641,10 @@ function esportaExcel() {
             ...bonifici.map(b => [formatDate(b.mov.DataParsed), b.mov.Importo, b.mov.Ordinante,
                 b.ddt.map(d => `${d.NrDoc}/${d.Sede} (${d.Pagamento})`).join(', '),
                 b.ddt.length ? b.ddt[0].Cliente : (b.suggerimento ? 'probabile: ' + b.suggerimento : ''),
-                b.conf || '', REGOLE[b.regola] || '', b.nota])
+                b.conf || '', REGOLE[b.regola] || '',
+                b.ddt.length ? [b.nota, b.insieme && b.insieme.length ? 'insieme al bonifico ' + b.insieme.map(x => formatDate(x.DataParsed) + ' ' + formatEuro(x.Importo)).join(', ') : ''].filter(Boolean).join(' · ')
+                    : b.acconto ? `Acconto aperto: DDT del cliente ancora da incassare ${formatEuro(b.acconto.daIncassare.reduce((s, d) => s + importoDdt(d), 0))}`
+                    : b.pagaPrecedenti ? 'Saldo di fatture o DDT precedenti' : ''])
         ], [{ wch: 12 }, { wch: 12 }, { wch: 60 }, { wch: 30 }, { wch: 40 }, { wch: 11 }, { wch: 45 }, { wch: 25 }]);
 
         foglio('Quadratura Nexi', [
