@@ -66,20 +66,11 @@ Ogni sede dispone di tre terminali Nexi con ruoli distinti:
 
 | Codice | Significato | Da correggere? |
 |---|---|---|
-| `POS` | Pagamento POS corretto | No |
-| `CAS` | Contanti / Cassa | Sì, se esiste transazione POS corrispondente |
-| `D` | Rimessa Diretta | Sì, se esiste transazione POS corrispondente |
-| `D60` | Rimessa Diretta 60gg | Sì, se esiste transazione POS corrispondente |
-| `W30` | Bonifico 30gg | No — pagamento differito, non rilevante per POS |
-| `W60` | Bonifico 60gg | No |
-| `BB` | Ricevuta Bancaria | No |
-| `WI6` | Vari termini bancari | No |
-| `W6N`, `W3+`, `W90`, `B30`, `WI9`, `W03` | Vari termini bancari | No |
-
-**Codici da verificare contro POS** (costante `NON_POS_PAG`):
-```
-CAS, D, D60, W30, W60, BB, WI6, W6N, W3+, W90, B30, WI9, W03
-```
+| `POS` | Carta di credito o bancomat | Sì, in BB se in realtà pagato con bonifico |
+| `BB`, `B30`, `B60` | Bonifico (immediato o a 30/60 gg) | Sì, in POS se in realtà pagato al POS |
+| `CAS` | Contanti o assegno | Sì, se esiste un POS o un bonifico corrispondente |
+| `D`, `D60` | Rimessa diretta: può essere pagata con POS o con bonifico | Sì, in POS o BB secondo l'incasso trovato |
+| `W30`, `W60`, `W90`, `WI6`, `W6N`, `W3+`, `WI9`, `W03` | RiBa: percorso a parte (presentazione effetti) | Solo con prova forte di un POS o bonifico |
 
 **Note di parsing:**
 - Le ultime righe del file contengono totali e piè di pagina — filtrare includendo solo righe dove `Unnamed: 4` è `F` o `Z`
@@ -150,6 +141,44 @@ Non usare mai l'indice del DataFrame per tracciare i match. Gli indici cambiano 
 - Usa **tutti** i DDT (inclusi quelli già con `Pagamento == POS`)
 - Serve per sapere quante transazioni POS-cassa giornaliere sono B2B
 - Output: set di `_uid` di tutte le transazioni POS abbinate a qualsiasi DDT
+
+### 4.1-bis Verifica pagamenti a due livelli (v2)
+
+Da v2.0 l'app (statica, `js/engine_riconciliazione.js`) verifica ogni DDT in entrambe le direzioni, su POS Nexi e su bonifici dall'estratto conto Banco BPM (`MovimentiCC_OnLine_*.csv`, facoltativo).
+
+**Estratto conto BPM** (`js/parser_bpm.js`): si leggono solo le entrate. Descrizione `bon.da <ordinante> <causale>` = bonifico cliente. `nexi payments` e `american express` sono accrediti POS, esclusi dal matching. Causali 292/293 = RiBa. Gli accrediti Bancomat Nexi (`pv <n> accredito bancomat DDMMYY`) servono per quadrare il file Nexi: PV `1000001535691` = Ferraris, `1000001535664` = Spezia.
+
+**Passaggi di abbinamento** (dal più affidabile; un DDT o un incasso già abbinato non viene più riconsiderato):
+
+| # | Criterio | Affidabilità |
+|---|---|---|
+| 1 | La causale del bonifico cita il n° DDT (`ddt 2376-z`, `ddt 4230/f`) | alta (media se l'importo differisce) |
+| 2 | POS stesso giorno, stessa sede, stesso importo | alta |
+| 3 | Ordinante = cliente e stesso importo, bonifico da 7 gg prima a 90 gg dopo il DDT | alta |
+| 4 | POS stesso giorno, altra sede | media |
+| 5 | POS stessa sede, da 3 gg prima a 10 gg dopo (solo DDT con codice POS) | media |
+| 6 | Ordinante = cliente, bonifico pari alla somma di 2–6 DDT | alta fino a 3 DDT, poi media |
+| 7 | Più DDT dello stesso cliente e giorno pagati con una transazione POS | media |
+| 8 | POS in finestra di date per DDT con altro codice (esclusi i `W..` RiBa) | bassa |
+| 9 | Bonifico con solo l'importo uguale e un unico DDT candidato (esclusi i `W..` RiBa) | media se il DDT è `B..`, altrimenti bassa |
+
+Passaggi aggiuntivi per la fattura cumulativa mensile:
+- dopo il n° DDT: la causale cita un numero fattura (`fatt.`, `ft.`, `fattura nr.`) presente nella colonna `Num. fattura` dei DDT dello stesso cliente → alta;
+- dopo il passaggio 6: bonifico arrivato da fine mese in poi, pari al totale dei DDT del cliente di quel mese non già pagati (esclusi `POS`, `CAS`, RiBa) → alta.
+
+**Scadenza bonifici e rimesse dirette:** i clienti a bonifico e a rimessa diretta pagano "fine mese data fattura". Data fattura = colonna `Data fattura` del DDT se già fatturato, altrimenti fine mese della data DDT. Scadenza = fine mese di (data fattura + 0/30/60 gg per `BB`, `D` / `B30` / `B60`, `D60`).
+
+Ordinante = cliente: la prima parola distintiva della ragione sociale (senza SRL, EDIL, città…) compare nella descrizione del bonifico, oppure ci compaiono almeno metà delle parole distintive.
+
+**Esiti:**
+
+| Codice DDT | Trovato POS | Trovato bonifico | Nessun incasso |
+|---|---|---|---|
+| `POS` | ok | correggere in BB | POS senza transazione (se il DDT è nel periodo Nexi) |
+| `BB`, `B30`, `B60` | correggere in POS | ok | attesa pagamento fine mese data fattura; "fattura scaduta non pagata" 10 gg dopo la scadenza |
+| `D`, `D60` | correggere in POS | correggere in BB | come i bonifici: attesa pagamento fine mese data fattura (`D60` = +60 gg), poi "fattura scaduta non pagata" |
+| `CAS` | correggere in POS | correggere in BB | nessun riscontro (contanti o assegno, atteso) |
+| `W..` RiBa | correggere in POS | correggere in BB | RiBa, percorso a parte |
 
 ### 4.2 Calcolo residuo corrispettivi
 

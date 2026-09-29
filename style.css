@@ -147,3 +147,48 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 
 /* La barra di stato ospita l'interruttore del tema in coda. */
 .top-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* --- v2: verifica pagamenti POS + bonifici ------------------------------- */
+
+.dropzone h3 .opzionale { font-size: var(--fs-micro); font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; margin-left: 6px; }
+.titolo-sezione { font-size: var(--fs-lg); font-weight: 600; margin-bottom: 6px; }
+.testo-tenue { color: var(--text3); }
+.nota-evidenza { color: var(--orange); font-weight: 600; }
+.cella-incasso { font-size: 12px; color: var(--text2); line-height: 1.5; max-width: 420px; }
+.cella-incasso i { color: var(--text3); margin-right: 2px; }
+
+.riepilogo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.carta-riepilogo {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left;
+  padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--border); border-left-width: 4px;
+  background: var(--surface); color: var(--text); font: inherit; cursor: pointer; transition: var(--transition);
+}
+.carta-riepilogo:hover:not(:disabled) { background: var(--surface2); }
+.carta-riepilogo:disabled { opacity: .55; cursor: default; }
+.carta-riepilogo.attiva { box-shadow: 0 0 0 2px var(--accent); }
+.carta-riepilogo.tono-arancio { border-left-color: var(--orange); }
+.carta-riepilogo.tono-rosso { border-left-color: var(--red); }
+.carta-riepilogo.tono-verde { border-left-color: var(--green); }
+.carta-riepilogo.tono-blu { border-left-color: var(--blue); }
+.carta-titolo { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); }
+.carta-numero { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 700; line-height: 1.1; }
+.carta-sotto { font-family: 'JetBrains Mono', monospace; font-size: var(--fs-sm); color: var(--text3); }
+
+.filtri-bar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.filtri-gruppo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.chip {
+  padding: 6px 12px; border-radius: var(--radius-full); border: 1px solid var(--border);
+  background: var(--surface); color: var(--text2); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
+}
+.chip:hover { background: var(--surface2); }
+.chip.attiva { background: var(--accent-bg); border-color: var(--accent-border); color: var(--accent-text); }
+.chip-conta { font-family: 'JetBrains Mono', monospace; font-size: var(--fs-micro); opacity: .8; margin-left: 4px; }
+.modern-input.select { width: auto; font-family: 'DM Sans', sans-serif; padding: 7px 10px; }
+.filtri-gruppo .modern-input.wide { width: 220px; padding: 7px 10px; }
+.p-0 { padding: 0; }
+
+@media (max-width: 720px) {
+  .tab-content { padding: 0 16px 24px; }
+  .flex-between { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .actions { flex-wrap: wrap; }
+}

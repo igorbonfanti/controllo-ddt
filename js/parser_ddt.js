@@ -1,107 +1,67 @@
 // Parser per il file DDT (Esportazione Zucchetti)
 
-window.parseFileDDT = async function parseFileDDT(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
+(function (root) {
+    const U = root.Util || (typeof require !== 'undefined' ? require('./util.js') : null);
 
-        reader.onload = (e) => {
-            try {
-                const data = new Uint8Array(e.target.result);
-                // Usiamo SheetJS per estrarre direttamente il formato xls legacy
-                const workbook = XLSX.read(data, { type: 'array' });
-                const firstSheetName = workbook.SheetNames[0];
-                const sheet = workbook.Sheets[firstSheetName];
-                
-                // Converte in array array per elaborare
-                let rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false });
-                
-                let processedDDTs = [];
+    // Colonne fisse dell'export Zucchetti (vedi riconciliazione_pos_ddt_spec.md, par. 3.1)
+    const COL = { tipoDoc: 1, nr: 3, sede: 4, data: 5, numFattura: 6, dataFattura: 8, pagamento: 9, imponibile: 10, importo: 11, cliente: 12 };
 
-                for (let i = 0; i < rows.length; i++) {
-                    const row = rows[i];
-                    if (!row || row.length < 13) continue;
+    function parseDDTRows(rows) {
+        const out = [];
+        for (const row of rows) {
+            if (!row || row.length < 12) continue;
 
-                    // Colonna E (indice 4) = Sede ("F" o "Z")
-                    // Se non è F o Z, verifichiamo la Colonna B (indice 1) che contiene "DE1" (Spezia) o "DE2" (Ferraris)
-                    const sedeRaw = String(row[4] || '').trim().toUpperCase();
-                    let sede = sedeRaw.substring(0, 1); 
-                    
-                    // Fallback roccioso tramite il prefisso documento Zucchetti
-                    const tipoDoc = String(row[1] || '').trim().toUpperCase();
-                    if (tipoDoc.includes('DE1')) sede = 'Z';
-                    if (tipoDoc.includes('DE2')) sede = 'F';
+            // Sede: colonna E ("F"/"Z"), con conferma dal codice documento (DE1 = Spezia, DE2 = Ferraris)
+            let sede = String(row[COL.sede] || '').trim().toUpperCase().substring(0, 1);
+            const tipoDoc = String(row[COL.tipoDoc] || '').trim().toUpperCase();
+            if (tipoDoc.includes('DE1')) sede = 'Z';
+            if (tipoDoc.includes('DE2')) sede = 'F';
+            if (sede !== 'F' && sede !== 'Z') continue; // totali e pie' di pagina
 
-                    // Se non è F o Z neanche dopo i controlli incrociati, probabilmente è un totale e saltiamo
-                    if (sede !== 'F' && sede !== 'Z') continue;
+            const nr = String(row[COL.nr] || '').trim();
+            const dataIso = U.parseDataIT(row[COL.data]);
+            if (!nr || !dataIso) continue;
 
-                    // Estrazione e pulizia campi
-                    const rawNrDoc = String(row[3] || '').trim();
-                    const rawDataDoc = String(row[5] || '').trim();
-                    const rawPagamento = String(row[9] || '').trim().toUpperCase();
-                    const rawImportoIva = row[11];
-                    const rawCliente = row[12];
+            const importo = U.parseNumero(row[COL.importo]);
+            if (isNaN(importo) || importo === 0) continue;
 
-                    if (!rawNrDoc || !rawDataDoc) continue;
+            // "Cliente: CODICE - NOME CITTA" -> codice + nome
+            const cliente = String(row[COL.cliente] || '').replace(/^\s*Cliente:\s*/i, '').replace(/\s+/g, ' ').trim();
+            const sepIdx = cliente.indexOf(' - ');
+            const codiceCliente = sepIdx > 0 ? cliente.slice(0, sepIdx).trim() : '';
+            const nomeCliente = sepIdx > 0 ? cliente.slice(sepIdx + 3).trim() : cliente;
 
-                    // Pulizia Importo: i legacy xls Zucchetti scrivono es. "1.062,49" o "1,062.49"
-                    // raw: false usa i formattatori della cella. Se è stringa la converto
-                    let importoScrubbed = 0;
-                    if (typeof rawImportoIva === 'string') {
-                        let iStr = rawImportoIva.trim();
-                        let lastDot = iStr.lastIndexOf('.');
-                        let lastComma = iStr.lastIndexOf(',');
-                        
-                        if (lastComma > lastDot) {
-                            // formato EU (es. 1.000,50 o 20,42)
-                            iStr = iStr.replace(/\./g, '').replace(',', '.');
-                        } else if (lastDot > lastComma) {
-                            // formato US (es. 1,000.50 o 20.42)
-                            iStr = iStr.replace(/,/g, '');
-                        } else {
-                            // Solo uno dei due è presente
-                            if (lastComma !== -1) iStr = iStr.replace(',', '.');
-                            // Se ha solo il punto, parseFloat lo leggerà nativamente
-                        }
-                        importoScrubbed = parseFloat(iStr);
-                    } else if (typeof rawImportoIva === 'number') {
-                        importoScrubbed = rawImportoIva;
-                    }
+            out.push({
+                NrDoc: nr,
+                Sede: sede,
+                DataOriginale: String(row[COL.data]).trim(),
+                DataParsed: dataIso,
+                Pagamento: String(row[COL.pagamento] || '').trim().toUpperCase(),
+                ImportoConIVA: Math.round(importo * 100) / 100,
+                Cliente: cliente,
+                CodiceCliente: codiceCliente,
+                NomeCliente: nomeCliente,
+                NumFattura: String(row[COL.numFattura] || '').trim().replace(/^0+(?=\d)/, ''),
+                DataFattura: U.parseDataIT(row[COL.dataFattura]),
+                id: `${nr}_${dataIso}_${sede}`
+            });
+        }
+        return out;
+    }
 
-                    // Scarto i righi a zero
-                    if (isNaN(importoScrubbed) || importoScrubbed === 0) continue;
+    async function parseFileDDT(file) {
+        try {
+            const rows = await U.leggiRighe(file);
+            const ddt = parseDDTRows(rows);
+            if (!ddt.length) throw new Error('nessun DDT riconosciuto');
+            return ddt;
+        } catch (err) {
+            console.error('Errore parser DDT:', err);
+            throw "Errore durante la lettura del file DDT. Verifica che sia l'export Zucchetti originale.";
+        }
+    }
 
-                    // Costruzione data in formato standard YYYY-MM-DD
-                    // input Zucchetti: DD/MM/YYYY
-                    let normalizedDate = '';
-                    if (typeof rawDataDoc === 'string' && rawDataDoc.includes('/')) {
-                        const parts = rawDataDoc.split('/');
-                        if (parts.length === 3) {
-                            normalizedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-                        }
-                    }
-
-                    // Pulizia Cliente
-                    // "Cliente: 12345 - NOME AZIENDA MILANO" -> "12345 - NOME AZIENDA MILANO"
-                    let clientePulito = String(rawCliente || '').replace(/^Cliente:\s*/i, '');
-
-                    processedDDTs.push({
-                        NrDoc: String(rawNrDoc),
-                        Sede: sede, // F o Z
-                        DataOriginale: rawDataDoc,
-                        DataParsed: normalizedDate,
-                        Pagamento: String(rawPagamento).trim(),
-                        ImportoConIVA: importoScrubbed,
-                        Cliente: clientePulito
-                    });
-                }
-                
-                resolve(processedDDTs);
-            } catch (err) {
-                console.error("Errore parser DDT:", err);
-                reject("Errore durante la lettura del file DDT. Verifica che sia l'export Zucchetti originale.");
-            }
-        };
-
-        reader.readAsArrayBuffer(file);
-    });
-}
+    root.parseDDTRows = parseDDTRows;
+    root.parseFileDDT = parseFileDDT;
+    if (typeof module !== 'undefined' && module.exports) module.exports = { parseDDTRows };
+})(typeof window !== 'undefined' ? window : globalThis);
