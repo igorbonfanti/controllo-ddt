@@ -14,7 +14,7 @@ const dir = process.argv[2] || path.resolve(__dirname, '../../dati');
 const righe = f => U.righeDaBuffer(new Uint8Array(fs.readFileSync(path.join(dir, f))), f, XLSX);
 
 const ddt = parseDDTRows(righe('ddt.xls'));
-const pos = parsePOSRows(righe('nexi.csv'));
+const pos = parsePOSRows(righe(process.env.NEXI || 'nexi.csv'));
 const bpm = parseBPMRows(righe('bpm.csv'));
 console.log(`DDT ${ddt.length} | POS ${pos.length} (scartate ${JSON.stringify(pos.scartate)}) | BPM ${bpm.length}`);
 
@@ -34,4 +34,4 @@ for (const v of ["correggere", "mancante", "attesa_fattura"]) {
 console.log('\n== bonifici');
 r.bonifici.forEach(b => console.log(b.mov.DataParsed, b.mov.Importo.toFixed(2).padStart(8), b.mov.Ordinante.slice(0, 45).padEnd(45), b.ddt.length ? b.ddt.map(d => d.NrDoc + d.Sede).join(',') + ` [${b.conf} ${b.regola}] ${b.nota}` : '-- ' + b.suggerimento));
 console.log('\n== quadratura bancomat');
-r.quadraturaNexi.forEach(q => console.log(q.dataTransazioni, q.sede, q.accredito, q.totalePos, q.delta));
+r.quadraturaNexi.filter(q => q.delta !== 0).forEach(q => console.log(q.circuito, q.dataTransazioni, q.dataAccredito, q.sede, q.accredito, q.totalePos, q.delta)); console.log('quadrature a zero:', r.quadraturaNexi.filter(q => q.delta === 0).length);

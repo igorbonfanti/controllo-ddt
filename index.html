@@ -19,9 +19,9 @@
     <!-- Stili Custom -->
     <link rel="stylesheet" href="tema.css?v=2">
     <link rel="stylesheet" href="base.css?v=2">
-    <link rel="stylesheet" href="style.css?v=v8">
+    <link rel="stylesheet" href="style.css?v=v9">
     <!-- Prima del corpo, altrimenti la pagina lampeggia col tema sbagliato. -->
-    <script src="tema.js?v=5"></script>
+    <script src="tema.js?v=6"></script>
 </head>
 <body class="dark-theme">
     
@@ -32,7 +32,7 @@
             <div class="ag-logo">ME</div>
             <div class="ag-titolo">
                 <h1>Il Magazzino Edile</h1>
-                <span class="ag-modulo">Riconciliazione<span class="ag-versione">v2.0.0</span></span>
+                <span class="ag-modulo">Riconciliazione<span class="ag-versione">v2.1.0</span></span>
             </div>
             <div class="ag-azioni">
                 <button id="btnTema" class="btn btn-icona" title="Cambia tema">&#127769;</button>
@@ -217,8 +217,8 @@
                 </div>
 
                 <div class="page-title mt-4">
-                    <h2 class="titolo-sezione">Quadratura accrediti Bancomat Nexi</h2>
-                    <p>Controllo di completezza del file Nexi: ogni accredito Bancomat in banca deve coincidere con le transazioni Bancomat del giorno per quella sede.</p>
+                    <h2 class="titolo-sezione">Quadratura accrediti Nexi</h2>
+                    <p>Controllo di completezza del file Nexi: ogni accredito in banca (Bancomat e Visa/Mastercard, al lordo) deve coincidere con il totale delle transazioni del giorno per quella sede. Amex accredita a parte.</p>
                 </div>
                 <div class="glass-panel p-0">
                     <div class="table-wrapper">
@@ -227,6 +227,8 @@
                                 <tr>
                                     <th>Giorno transazioni</th>
                                     <th>Sede</th>
+                                    <th>Circuito</th>
+                                    <th>Data accredito</th>
                                     <th class="amount-header">Accredito banca</th>
                                     <th class="amount-header">Transazioni Nexi</th>
                                     <th class="amount-header">Differenza</th>
@@ -331,13 +333,13 @@
     </div>
 
     <!-- Script Application -->
-    <script src="js/util.js?v=5"></script>
-    <script src="js/store.js?v=5"></script>
-    <script src="js/engine_riconciliazione.js?v=5"></script>
-    <script src="js/parser_ddt.js?v=5"></script>
-    <script src="js/parser_pos.js?v=5"></script>
-    <script src="js/parser_bpm.js?v=5"></script>
-    <script src="app.js?v=5"></script>
+    <script src="js/util.js?v=6"></script>
+    <script src="js/store.js?v=6"></script>
+    <script src="js/engine_riconciliazione.js?v=6"></script>
+    <script src="js/parser_ddt.js?v=6"></script>
+    <script src="js/parser_pos.js?v=6"></script>
+    <script src="js/parser_bpm.js?v=6"></script>
+    <script src="app.js?v=6"></script>
 <script>
   // L'interruttore chiaro/scuro: tema.js si occupa di icona, memoria e attributo.
   if (window.Tema) Tema.collega(document.getElementById('btnTema'));

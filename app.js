@@ -23,6 +23,7 @@ const REGOLE = {
     pos_altra_sede: "Stesso giorno e importo, ma sul POS dell'altra sede",
     pos_finestra: 'Stesso importo e sede, POS battuto in un giorno diverso dal DDT',
     pos_gruppo: 'Più DDT dello stesso cliente pagati con una sola transazione',
+    pos_anticipato: 'Stesso importo e sede, POS battuto prima della consegna (pagamento anticipato)',
     bon_rif_ddt: 'La causale del bonifico cita il numero del DDT',
     bon_cliente_importo: 'Ordinante uguale al cliente, stesso importo',
     bon_cliente_somma: 'Ordinante uguale al cliente, bonifico pari alla somma di più DDT',
@@ -67,7 +68,8 @@ function badgeConf(conf, regola) {
 
 function descriviIncasso(r) {
     const e = r.esito;
-    if (!e) return `<span class="testo-tenue">${esc(r.motivo)}</span>`;
+    if (!e) return `<span class="testo-tenue">${esc(r.motivo)}</span>`
+        + (r.indizi || []).map(i => `<br><span class="indizio"><i class="fa-solid fa-magnifying-glass"></i> ${esc(i)}</span>`).join('');
     const altri = e.gruppo ? `<br><small>insieme a DDT ${esc(e.gruppo.filter(n => n !== r.ddt.NrDoc).join(', '))}</small>` : '';
     if (e.canale === 'POS') {
         const p = e.pos;
@@ -340,15 +342,19 @@ function renderBonifici() {
         </tr>`).join('');
 
     ui.tbodyQuadratura.innerHTML = quadraturaNexi.map(q => {
-        const stato = q.delta === null
-            ? '<span class="testo-tenue">fuori periodo Nexi</span>'
-            : Math.abs(q.delta) <= 0.02
-                ? '<span class="ag-pastiglia pastiglia-verde">quadra</span>'
-                : `<span class="ag-pastiglia pastiglia-rossa">${formatEuro(q.delta)}</span>`;
+        const stato = q.accredito === null
+            ? `<span class="ag-pastiglia pastiglia-rossa" title="Transazioni nel file Nexi senza accredito in banca">nessun accredito</span>`
+            : q.delta === null
+                ? '<span class="testo-tenue">transazioni prima del file Nexi</span>'
+                : Math.abs(q.delta) <= 0.02
+                    ? '<span class="ag-pastiglia pastiglia-verde">quadra</span>'
+                    : `<span class="ag-pastiglia pastiglia-rossa">${formatEuro(q.delta)}</span>`;
         return `<tr>
-            <td>${formatDate(q.dataTransazioni)}</td>
+            <td>${q.dataTransazioni ? formatDate(q.dataTransazioni) : '—'}</td>
             <td>${nomeSede(q.sede)}</td>
-            <td class="amount">${formatEuro(q.accredito)}</td>
+            <td>${esc(q.circuito)}</td>
+            <td>${q.dataAccredito ? formatDate(q.dataAccredito) : '—'}</td>
+            <td class="amount">${q.accredito === null ? '' : formatEuro(q.accredito)}</td>
             <td class="amount">${q.totalePos === null ? '' : formatEuro(q.totalePos)}</td>
             <td class="amount">${stato}</td>
         </tr>`;
@@ -455,7 +461,7 @@ function esportaExcel() {
 
     const dettaglioIncasso = (r) => {
         const e = r.esito;
-        if (!e) return ['', '', '', '', ''];
+        if (!e) return ['', '', (r.indizi || []).join(' | '), '', ''];
         const gruppo = e.gruppo ? ` (insieme a DDT ${e.gruppo.filter(n => n !== r.ddt.NrDoc).join(', ')})` : '';
         if (e.canale === 'POS') {
             return ['POS', formatDate(e.pos.DataParsed),
@@ -523,9 +529,10 @@ function esportaExcel() {
         ], [{ wch: 12 }, { wch: 12 }, { wch: 60 }, { wch: 30 }, { wch: 40 }, { wch: 11 }, { wch: 45 }, { wch: 25 }]);
 
         foglio('Quadratura Nexi', [
-            ['Giorno transazioni', 'Sede', 'Accredito banca (€)', 'Transazioni Nexi (€)', 'Differenza (€)'],
-            ...quadraturaNexi.map(q => [formatDate(q.dataTransazioni), nomeSede(q.sede), q.accredito, q.totalePos ?? 'fuori periodo', q.delta ?? ''])
-        ], [{ wch: 18 }, { wch: 10 }, { wch: 18 }, { wch: 18 }, { wch: 14 }]);
+            ['Giorno transazioni', 'Sede', 'Circuito', 'Data accredito', 'Accredito banca (€)', 'Transazioni Nexi (€)', 'Differenza (€)'],
+            ...quadraturaNexi.map(q => [q.dataTransazioni ? formatDate(q.dataTransazioni) : 'prima del file Nexi', nomeSede(q.sede), q.circuito,
+                q.dataAccredito ? formatDate(q.dataAccredito) : 'nessun accredito', q.accredito ?? '', q.totalePos ?? '', q.delta ?? ''])
+        ], [{ wch: 18 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 14 }]);
     }
 
     // Corrispettivi

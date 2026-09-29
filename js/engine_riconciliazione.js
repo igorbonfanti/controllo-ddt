@@ -12,6 +12,7 @@
         tolleranza: 0.02,              // euro, arrotondamenti
         posFinestraPrima: 3,           // POS battuto fino a N giorni prima della data DDT
         posFinestraDopo: 10,           // ... o fino a N giorni dopo (DDT del sabato pagato il lunedi')
+        posAnticipoMax: 30,            // pagamento anticipato: POS fino a N giorni prima del DDT (merce consegnata dopo)
         posMarginePeriodo: 3,          // DDT a POS negli ultimi N giorni del file Nexi: non ancora verificabili
         bonFinestraPrima: 7,           // bonifico arrivato fino a N giorni prima del DDT (anticipato)
         bonFinestraDopo: 90,           // ... o fino a N giorni dopo
@@ -105,6 +106,10 @@
 
         const stessoGiornoStessaSede = (p, d) => p.DataParsed === d.DataParsed && p.sede_tml === d.Sede;
         const stessoGiornoAltraSede = (p, d) => p.DataParsed === d.DataParsed && p.sede_tml !== d.Sede;
+        const inAnticipoPos = (p, d) => {
+            const g = U.giorniTra(d.DataParsed, p.DataParsed);
+            return p.sede_tml === d.Sede && g < -cfg.posFinestraPrima && g >= -cfg.posAnticipoMax;
+        };
         const inFinestraPos = (p, d) => {
             const g = U.giorniTra(d.DataParsed, p.DataParsed);
             return p.sede_tml === d.Sede && g >= -cfg.posFinestraPrima && g <= cfg.posFinestraDopo && g !== 0;
@@ -247,11 +252,52 @@
         passBonFatturaMensile();
         passPos('pos_altra_sede', stessoGiornoAltraSede, () => 'media');
         passPos('pos_finestra', inFinestraPos, () => 'media', isPos);
+        passPos('pos_anticipato', inAnticipoPos, () => 'media', isPos);
         passBonClienteSomma();
         passPosGruppo();
         // Le RiBa seguono un percorso a parte: per loro niente abbinamenti deboli, solo prove forti
         passPos('pos_finestra', inFinestraPos, () => 'bassa', p => !isPos(p) && !isRiba(p));
         passBonSoloImporto();
+
+        // --- Indizi per i DDT a POS senza transazione -----------------------------------
+        // Non sono abbinamenti (troppo incerti per decidere da soli), ma piste da verificare a mano.
+        const carteCliente = new Map(); // codice cliente -> ultime 4 cifre delle carte usate su altri DDT
+        for (const [id, e] of esitoDdt) {
+            if (e.canale !== 'POS' || !e.pos.Carta) continue;
+            const d = ddtValidi.find(x => x.id === id);
+            const k = d.CodiceCliente || d.Cliente;
+            if (!carteCliente.has(k)) carteCliente.set(k, new Set());
+            carteCliente.get(k).add(e.pos.Carta);
+        }
+        const euro = n => n.toFixed(2).replace('.', ',') + ' €';
+        const descrPos = p => `${euro(p.Importo)} del ${dataIt(p.DataParsed)} ore ${p.Ora.slice(0, 5)} (${p.Circuito} *${p.Carta})`;
+
+        function indiziPos(d) {
+            const indizi = [];
+            const liberi = listaPos.filter(p => !posUsati.has(p._uid));
+            // Pagamento misto: parte con carta, il resto (cifra tonda) in contanti
+            for (const p of liberi) {
+                if (p.sede_tml !== d.Sede || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > 1 || p.Importo >= d.ImportoConIVA) continue;
+                const resto = Math.round((d.ImportoConIVA - p.Importo) * 100);
+                if (resto % 500 === 0) indizi.push(`Possibile pagamento misto: POS ${descrPos(p)} + ${euro(resto / 100)} in contanti`);
+            }
+            // Transazioni non abbinate fatte con una carta che il cliente ha usato per altri DDT
+            const carte = carteCliente.get(d.CodiceCliente || d.Cliente);
+            if (carte) {
+                for (const p of liberi) {
+                    if (!carte.has(p.Carta) || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > 15) continue;
+                    indizi.push(`Carta *${p.Carta} già usata dal cliente: POS non abbinato ${descrPos(p)}`);
+                }
+            }
+            // Stesso importo gia' abbinato a un altro DDT: possibile DDT doppio o scambio di cliente
+            for (const [uid, ids] of posUsati) {
+                const p = listaPos.find(x => x._uid === uid);
+                if (Math.abs(p.Importo - d.ImportoConIVA) > T || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > 30) continue;
+                const altro = ddtValidi.find(x => x.id === ids[0]);
+                if (altro) indizi.push(`POS dello stesso importo (${descrPos(p)}) già abbinato al DDT ${altro.NrDoc} di ${altro.NomeCliente}`);
+            }
+            return indizi;
+        }
 
         // --- Verdetti -----------------------------------------------------------------
         const datePos = listaPos.map(p => p.DataParsed).sort();
@@ -283,6 +329,7 @@
                     r.verdetto = 'non_verificabile'; r.motivo = 'Fuori dal periodo del file Nexi';
                 } else {
                     r.verdetto = 'mancante'; r.motivo = 'Registrato POS, nessuna transazione POS né bonifico';
+                    r.indizi = indiziPos(d);
                 }
             } else if (isBonifico(pag) || isRimessa(pag)) {
                 // Bonifico e rimessa diretta: fattura cumulativa mensile, pagata fine mese data fattura
@@ -327,20 +374,54 @@
             };
         });
 
-        // --- Quadratura accrediti Bancomat Nexi -> transazioni del file Nexi -----------
-        const quadraturaNexi = (listaBpm || [])
-            .filter(m => m.tipo === 'accredito_nexi' && m.circuitoAccredito === 'BANCOMAT' && m.dataTransazioni)
-            .map(m => {
-                const inPeriodo = posMin && m.dataTransazioni >= posMin && m.dataTransazioni <= posMax;
-                const tx = listaPos.filter(p => p.DataParsed === m.dataTransazioni && p.sede_tml === m.sede && /bancomat|pagobancomat/i.test(p.Circuito));
-                const totPos = Math.round(tx.reduce((s, p) => s + p.Importo, 0) * 100) / 100;
-                return {
-                    mov: m, sede: m.sede, dataTransazioni: m.dataTransazioni, accredito: m.Importo,
-                    totalePos: inPeriodo ? totPos : null, nTx: tx.length,
-                    delta: inPeriodo ? Math.round((m.Importo - totPos) * 100) / 100 : null
-                };
-            })
-            .sort((a, b) => a.dataTransazioni.localeCompare(b.dataTransazioni) || String(a.sede).localeCompare(String(b.sede)));
+        // --- Quadratura accrediti Nexi in banca -> transazioni del file Nexi -------------
+        // Nexi accredita al lordo, un bonifico per sede e per giorno di transazioni:
+        //  - Bancomat: la descrizione riporta il giorno delle transazioni;
+        //  - Visa/Mastercard ("internaz. e apm"): il giorno non c'e', si cerca il giorno con lo stesso totale
+        //    nei 7 giorni precedenti l'accredito. Amex accredita a parte e non rientra.
+        const accrediti = (listaBpm || []).filter(m => m.tipo === 'accredito_nexi' && m.sede);
+        const tondo = n => Math.round(n * 100) / 100;
+        const totaleGiorno = (sede, giorno, bancomat) => tondo(listaPos
+            .filter(p => p.sede_tml === sede && p.DataParsed === giorno && (bancomat ? /bancomat/i.test(p.Circuito) : !/bancomat|amex/i.test(p.Circuito)))
+            .reduce((s, p) => s + p.Importo, 0));
+        const inPeriodo = g => posMin && g >= posMin && g <= posMax;
+        const quadraturaNexi = [];
+
+        for (const m of accrediti.filter(m => m.circuitoAccredito === 'BANCOMAT' && m.dataTransazioni)) {
+            const ok = inPeriodo(m.dataTransazioni);
+            const tot = totaleGiorno(m.sede, m.dataTransazioni, true);
+            quadraturaNexi.push({ mov: m, circuito: 'Bancomat', sede: m.sede, dataTransazioni: m.dataTransazioni, dataAccredito: m.DataParsed,
+                accredito: m.Importo, totalePos: ok ? tot : null, delta: ok ? tondo(m.Importo - tot) : null });
+        }
+
+        for (const sede of ['F', 'Z']) {
+            const giorni = [...new Set(listaPos.filter(p => p.sede_tml === sede && !/bancomat|amex/i.test(p.Circuito)).map(p => p.DataParsed))].sort();
+            const totali = new Map(giorni.map(g => [g, totaleGiorno(sede, g, false)]));
+            const usati = new Set();
+            const intl = accrediti.filter(m => m.sede === sede && m.circuitoAccredito === 'INTERNAZIONALI').sort((a, b) => a.DataParsed.localeCompare(b.DataParsed));
+            const candidati = m => giorni.filter(g => !usati.has(g) && g < m.DataParsed && U.giorniTra(g, m.DataParsed) <= 7);
+            const aggiungi = (m, g) => {
+                if (g) usati.add(g);
+                quadraturaNexi.push({ mov: m, circuito: 'Visa/Mastercard', sede, dataTransazioni: g, dataAccredito: m.DataParsed,
+                    accredito: m.Importo, totalePos: g ? totali.get(g) : null, delta: g ? tondo(m.Importo - totali.get(g)) : null });
+            };
+            // Prima gli accrediti che trovano un giorno con lo stesso totale, poi gli altri sul giorno piu' vicino
+            const sospesi = [];
+            for (const m of intl) {
+                const g = candidati(m).filter(g => Math.abs(totali.get(g) - m.Importo) <= T).pop();
+                if (g) aggiungi(m, g); else sospesi.push(m);
+            }
+            for (const m of sospesi) aggiungi(m, candidati(m).pop() || null); // null: transazioni prima del file Nexi
+            // Giorni con transazioni ma nessun accredito, esclusi gli ultimi (accredito non ancora arrivato)
+            const ultimoAccredito = intl.length ? intl[intl.length - 1].DataParsed : null;
+            for (const g of giorni) {
+                if (usati.has(g) || !ultimoAccredito || U.giorniTra(g, ultimoAccredito) < 3) continue;
+                quadraturaNexi.push({ mov: null, circuito: 'Visa/Mastercard', sede, dataTransazioni: g, dataAccredito: null,
+                    accredito: null, totalePos: totali.get(g), delta: tondo(-totali.get(g)) });
+            }
+        }
+        quadraturaNexi.sort((a, b) => String(a.dataTransazioni || a.dataAccredito).localeCompare(String(b.dataTransazioni || b.dataAccredito))
+            || String(a.sede).localeCompare(String(b.sede)) || a.circuito.localeCompare(b.circuito));
 
         // --- Corrispettivi giornalieri (logica invariata) -----------------------------
         const giorniDdt = [...new Set(listaDdt.map(d => d.DataParsed))].sort();

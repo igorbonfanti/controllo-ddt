@@ -36,6 +36,15 @@
         const out = [];
         const scartate = { rifiutate: 0, stornate: 0 };
 
+        // Uno storno compare come riga "Stornata" in aggiunta alla riga originale "Contabilizzata"
+        // con la stessa autorizzazione: vanno scartate entrambe (la banca non accredita nulla).
+        const chiaveStorno = r => `${v(r, 'tml')}|${v(r, 'data')}|${v(r, 'auth')}|${v(r, 'importo')}`;
+        const stornate = new Set();
+        for (let i = hIdx + 1; i < rows.length; i++) {
+            const r = rows[i];
+            if (r && /stornat|annullat/i.test(v(r, 'stato'))) stornate.add(chiaveStorno(r));
+        }
+
         for (let i = hIdx + 1; i < rows.length; i++) {
             const r = rows[i];
             if (!r || !v(r, 'data')) continue;
@@ -44,7 +53,8 @@
             const stato = v(r, 'stato').toLowerCase();
             const esito = v(r, 'esito').toLowerCase();
             if (stato.includes('rifiutat') || stato.includes('negat') || esito.includes('non eseguit')) { scartate.rifiutate++; continue; }
-            if (stato.includes('stornat') || stato.includes('annullat')) { scartate.stornate++; continue; }
+            if (stato.includes('stornat') || stato.includes('annullat')) continue;
+            if (stornate.has(chiaveStorno(r))) { scartate.stornate++; continue; }
 
             const tml = v(r, 'tml').replace(/\.0$/, '').replace(/['"]/g, '');
             const meta = TERMINALI[tml];

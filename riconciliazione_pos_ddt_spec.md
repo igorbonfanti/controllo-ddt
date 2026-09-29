@@ -157,6 +157,7 @@ Da v2.0 l'app (statica, `js/engine_riconciliazione.js`) verifica ogni DDT in ent
 | 3 | Ordinante = cliente e stesso importo, bonifico da 7 gg prima a 90 gg dopo il DDT | alta |
 | 4 | POS stesso giorno, altra sede | media |
 | 5 | POS stessa sede, da 3 gg prima a 10 gg dopo (solo DDT con codice POS) | media |
+| 5-bis | POS stessa sede fino a 30 gg prima del DDT: pagamento anticipato (solo DDT con codice POS) | media |
 | 6 | Ordinante = cliente, bonifico pari alla somma di 2–6 DDT | alta fino a 3 DDT, poi media |
 | 7 | Più DDT dello stesso cliente e giorno pagati con una transazione POS | media |
 | 8 | POS in finestra di date per DDT con altro codice (esclusi i `W..` RiBa) | bassa |
@@ -167,6 +168,15 @@ Passaggi aggiuntivi per la fattura cumulativa mensile:
 - dopo il passaggio 6: bonifico arrivato da fine mese in poi, pari al totale dei DDT del cliente di quel mese non già pagati (esclusi `POS`, `CAS`, RiBa) → alta.
 
 **Scadenza bonifici e rimesse dirette:** i clienti a bonifico e a rimessa diretta pagano "fine mese data fattura". Data fattura = colonna `Data fattura` del DDT se già fatturato, altrimenti fine mese della data DDT. Scadenza = fine mese di (data fattura + 0/30/60 gg per `BB`, `D` / `B30` / `B60`, `D60`).
+
+**Indizi per i DDT `POS` senza transazione** (non sono abbinamenti, solo piste mostrate accanto al DDT):
+- pagamento misto: POS non abbinato dello stesso giorno e sede, con resto in cifra tonda (multiplo di 5 €) presumibilmente in contanti;
+- carta del cliente: POS non abbinato fatto con una carta (ultime 4 cifre) già usata dal cliente per altri DDT;
+- stesso importo già abbinato a un altro DDT: possibile DDT doppio o cliente scambiato.
+
+**Storni Nexi:** uno storno compare come riga `Stornata` accanto alla riga originale `Contabilizzata` con la stessa autorizzazione. Si scartano entrambe.
+
+**Quadratura accrediti Nexi:** Nexi accredita al lordo un bonifico per sede e per giorno di transazioni. Bancomat: il giorno è nella descrizione. Visa/Mastercard (`accredito internaz. e apm`): si cerca il giorno con lo stesso totale nei 7 giorni precedenti. Amex accredita a parte.
 
 Ordinante = cliente: la prima parola distintiva della ragione sociale (senza SRL, EDIL, città…) compare nella descrizione del bonifico, oppure ci compaiono almeno metà delle parole distintive.
 
