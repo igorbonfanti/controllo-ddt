@@ -172,7 +172,11 @@ Passaggi aggiuntivi per la fattura cumulativa mensile:
 **Indizi per i DDT `POS` senza transazione** (non sono abbinamenti, solo piste mostrate accanto al DDT):
 - pagamento misto: POS non abbinato dello stesso giorno e sede, con resto in cifra tonda (multiplo di 5 €) presumibilmente in contanti;
 - carta del cliente: POS non abbinato fatto con una carta (ultime 4 cifre) già usata dal cliente per altri DDT;
-- stesso importo già abbinato a un altro DDT: possibile DDT doppio o cliente scambiato.
+- pagato insieme ad altri DDT dello stesso cliente (anche resi) entro 5 gg: POS non abbinato pari alla somma;
+- stesso importo già abbinato a un altro DDT: possibile DDT doppio o cliente scambiato;
+- nessuna delle precedenti: "nessuna traccia né nel file Nexi né in banca", probabilmente contanti o non pagato.
+
+**Completezza del file Nexi:** in cima alla verifica un avviso dice se tutti gli accrediti Nexi in banca quadrano con il file. Se qualcuno non quadra, indica sede, giorno e differenza: i "POS senza transazione" potrebbero essere falsi allarmi e conviene riesportare da Nexi.
 
 **Storni Nexi:** uno storno compare come riga `Stornata` accanto alla riga originale `Contabilizzata` con la stessa autorizzazione. Si scartano entrambe.
 

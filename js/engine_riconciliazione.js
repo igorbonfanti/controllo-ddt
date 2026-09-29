@@ -289,12 +289,29 @@
                     indizi.push(`Carta *${p.Carta} già usata dal cliente: POS non abbinato ${descrPos(p)}`);
                 }
             }
+            // Pagato insieme ad altri DDT dello stesso cliente (anche resi) di giorni vicini
+            const altri = ddtValidi.concat(listaDdt.filter(x => x.ImportoConIVA < 0))
+                .filter(x => x !== d && (x.CodiceCliente || x.Cliente) === (d.CodiceCliente || d.Cliente) && Math.abs(U.giorniTra(d.DataParsed, x.DataParsed)) <= 5)
+                .slice(0, 10);
+            for (let m = 1; m < (1 << altri.length); m++) {
+                const sel = altri.filter((_, i) => m & (1 << i));
+                const tot = d.ImportoConIVA + sel.reduce((s, x) => s + x.ImportoConIVA, 0);
+                for (const p of liberi) {
+                    if (Math.abs(p.Importo - tot) > T || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > cfg.posFinestraDopo) continue;
+                    indizi.push(`Pagato insieme ai DDT ${sel.map(x => x.NrDoc).join(', ')} dello stesso cliente? POS non abbinato ${descrPos(p)} = totale dei DDT`);
+                }
+            }
             // Stesso importo gia' abbinato a un altro DDT: possibile DDT doppio o scambio di cliente
             for (const [uid, ids] of posUsati) {
                 const p = listaPos.find(x => x._uid === uid);
                 if (Math.abs(p.Importo - d.ImportoConIVA) > T || Math.abs(U.giorniTra(d.DataParsed, p.DataParsed)) > 30) continue;
                 const altro = ddtValidi.find(x => x.id === ids[0]);
                 if (altro) indizi.push(`POS dello stesso importo (${descrPos(p)}) già abbinato al DDT ${altro.NrDoc} di ${altro.NomeCliente}`);
+            }
+            if (!indizi.length) {
+                indizi.push(listaBpm
+                    ? 'Nessuna traccia né nel file Nexi né in banca: probabilmente pagato in contanti o non ancora pagato'
+                    : 'Nessuna traccia nel file Nexi: carica l\'estratto BPM per escludere un bonifico');
             }
             return indizi;
         }
@@ -420,6 +437,14 @@
                     accredito: null, totalePos: totali.get(g), delta: tondo(-totali.get(g)) });
             }
         }
+        // Giudizio sintetico: il file Nexi contiene tutto quello che la banca ha accreditato?
+        const verificabili = quadraturaNexi.filter(q => q.delta !== null);
+        const completezzaNexi = !listaBpm ? null : {
+            accrediti: verificabili.filter(q => q.accredito !== null).length,
+            quadrano: verificabili.filter(q => q.accredito !== null && Math.abs(q.delta) <= T).length,
+            differenze: verificabili.filter(q => Math.abs(q.delta) > T)
+        };
+
         quadraturaNexi.sort((a, b) => String(a.dataTransazioni || a.dataAccredito).localeCompare(String(b.dataTransazioni || b.dataAccredito))
             || String(a.sede).localeCompare(String(b.sede)) || a.circuito.localeCompare(b.circuito));
 
@@ -451,6 +476,7 @@
             righe,
             bonifici: elencoBonifici,
             quadraturaNexi,
+            completezzaNexi,
             aggregatiGiornalieri,
             anomalie,
             posUsati,

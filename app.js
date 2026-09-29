@@ -223,6 +223,24 @@ function righeFiltrate(ignoraCategoria) {
     });
 }
 
+// Dice subito se il file Nexi e' affidabile: se non lo e', i "POS senza transazione" potrebbero essere falsi allarmi
+function renderAvvisoNexi() {
+    const c = state.risultati.completezzaNexi;
+    const el = document.getElementById('avviso-nexi');
+    if (!c || !c.accrediti) { el.hidden = true; return; }
+    el.hidden = false;
+    if (!c.differenze.length) {
+        el.className = 'avviso avviso-ok';
+        el.innerHTML = `<i class="fa-solid fa-circle-check"></i> <strong>File Nexi completo:</strong> tutti i ${c.accrediti} accrediti Nexi in banca quadrano al centesimo con le transazioni del file. `
+            + 'I DDT a POS senza transazione non sono stati pagati con carta sui terminali Nexi.';
+    } else {
+        el.className = 'avviso avviso-attenzione';
+        el.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> <strong>File Nexi forse incompleto:</strong> ${c.quadrano} accrediti su ${c.accrediti} quadrano, `
+            + `${c.differenze.length} con differenze (${c.differenze.map(q => `${nomeSede(q.sede)} ${formatDate(q.dataTransazioni)} ${formatEuro(q.delta)}`).join('; ')}). `
+            + 'Riesporta da Nexi prima di fidarti dei "POS senza transazione". Dettaglio nella scheda Bonifici.';
+    }
+}
+
 function renderRiepilogo() {
     const { righe, periodo } = state.risultati;
     const corretti = new Set(Store.getCorretti());
@@ -265,6 +283,7 @@ function renderVerifica() {
         `POS Nexi ${periodo.posMin ? 'dal ' + formatDate(periodo.posMin) + ' al ' + formatDate(periodo.posMax) : 'non caricato'} · ` +
         (periodo.bpmCaricato ? `estratto BPM dal ${formatDate(periodo.bpmMin)} al ${formatDate(periodo.bpmMax)}` : 'estratto BPM non caricato: verifica solo POS');
 
+    renderAvvisoNexi();
     renderRiepilogo();
     renderFiltriCategoria();
 
