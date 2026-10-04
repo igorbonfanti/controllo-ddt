@@ -2,6 +2,14 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
+    <!-- Transizione a Firebase Hosting: chi arriva dal vecchio indirizzo su
+         GitHub Pages, anche dall'icona gia' installata, viene portato al nuovo.
+         Si toglie quando il repository diventa privato e Pages si spegne. -->
+    <script>
+      if (location.hostname === 'igorbonfanti.github.io') {
+        location.replace('https://ilmagazzinoedile-ddt.web.app/' + location.hash);
+      }
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Il Magazzino Edile — Riconciliazione</title>
     <meta name="apple-mobile-web-app-title" content="DDT">
